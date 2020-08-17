@@ -81,18 +81,22 @@ getFailures fuzzer getExpectation initialSeed totalRuns =
             Dict.empty
 
         helper currentSeed remainingRuns failures =
-            let
-                ( value, nextSeed ) =
-                    Random.step genVal currentSeed
+            if Dict.isEmpty failures then
+                let
+                    ( value, nextSeed ) =
+                        Random.step genVal currentSeed
 
-                newFailures =
-                    findNewFailure fuzzer getExpectation failures currentSeed value
-            in
-            if remainingRuns <= 1 then
-                newFailures
+                    newFailures =
+                        findNewFailure fuzzer getExpectation failures currentSeed value
+                in
+                if remainingRuns <= 1 then
+                    newFailures
+
+                else
+                    helper nextSeed (remainingRuns - 1) newFailures
 
             else
-                helper nextSeed (remainingRuns - 1) newFailures
+                failures
     in
     helper initialSeed totalRuns initialFailures
 

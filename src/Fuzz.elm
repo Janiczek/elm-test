@@ -1,20 +1,19 @@
 module Fuzz exposing
     ( int, intRange, float, floatRange, percentage, string, bool, maybe, result, list, array
-    , Fuzzer, oneOf, constant, map, map2, map3, map4, map5, andMap, frequency
+    , Fuzzer, oneOf, oneOfValues, constant, map, map2, map3, map4, map5, andMap, frequency, frequencyValues, andThen, lazy, filter
     , pair, triple
-    , custom, char, unit, order, invalid
+    , char, unit, order, invalid, weightedBool
     )
 
 {-| This is a library of _fuzzers_ you can use to supply values to your fuzz
 tests. You can typically pick out which ones you need according to their types.
 
-A `Fuzzer a` knows how to create values of type `a` in two different ways. It
-can create them randomly, so that your test's expectations are run against many
-values. Fuzzers will often generate edge cases likely to find bugs. If the
-fuzzer can make your test fail, it also knows how to "simplify" that failing input
-into more minimal examples, some of which might also cause the tests to fail. In
-this way, fuzzers can usually find the simplest input that
-reproduces a bug.
+A `Fuzzer a` knows how to create values of type `a`. It can create them randomly,
+so that your test's expectations are run against many values. Fuzzers will often
+generate edge cases likely to find bugs. If the fuzzer can make your test fail,
+the test runner also knows how to "simplify" that failing input into more minimal
+examples, some of which might also cause the tests to fail. In this way, fuzzers
+can usually find the simplest input that reproduces a bug.
 
 
 ## Common Fuzzers
@@ -24,7 +23,7 @@ reproduces a bug.
 
 ## Working with Fuzzers
 
-@docs Fuzzer, oneOf, constant, map, map2, map3, map4, map5, andMap, frequency
+@docs Fuzzer, oneOf, oneOfValues, constant, map, map2, map3, map4, map5, andMap, frequency, frequencyValues, andThen, lazy, filter
 
 
 ## Tuple Fuzzers
@@ -36,7 +35,7 @@ Instead of using a tuple, consider using [`fuzz2`][fuzz2] or [`fuzz3`][fuzz3].
 
 ## Uncommon Fuzzers
 
-@docs custom, char, unit, order, invalid
+@docs char, unit, order, invalid, weightedBool
 
 [fuzz2]: /packages/elm-explorations/test/latest/Test#fuzz2
 [fuzz3]: /packages/elm-explorations/test/latest/Test#fuzz3
@@ -45,88 +44,22 @@ Instead of using a tuple, consider using [`fuzz2`][fuzz2] or [`fuzz3`][fuzz3].
 
 import Array exposing (Array)
 import Char
-import Fuzz.Internal as Internal
-    exposing
-        ( Fuzzer
-        , Valid
-        , ValidFuzzer
-        , combineValid
-        , frequencyList
-        , invalidReason
-        )
-import Lazy
-import Lazy.List exposing (LazyList, append)
-import MicroRandomExtra as Random
-import Random exposing (Generator)
-import RoseTree exposing (RoseTree(..))
-import Simplify exposing (Simplifier)
-import Simplify.Internal
+import Elm.Kernel.Debug
+import Fuzz.Internal exposing (Fuzzer(..))
+import GenResult exposing (GenResult(..))
+import MicroListExtra as List
+import PRNG exposing (PRNG(..))
+import Random
+import RandomRun
+import Test.Internal
 
 
-{-| The representation of fuzzers is opaque. Conceptually, a `Fuzzer a`
-consists of a way to randomly generate values of type `a`, and a way to simplify
-those values.
+{-| The representation of fuzzers is opaque. Conceptually, a `Fuzzer a` consists
+of a way to randomly generate values of type `a` in a way allowing the test runner
+to simplify those values.
 -}
 type alias Fuzzer a =
-    Internal.Fuzzer a
-
-
-{-| Build a custom `Fuzzer a` by providing a `Generator a` and a `Simplifier a`. Generators are defined in
-[`elm/random`](http://package.elm-lang.org/packages/elm/random/latest). Simplifiers are defined in the [`Simplify`
-module](https://package.elm-lang.org/packages/elm-explorations/test/latest/Simplify). It is not possible to extract the
-generator and simplifier from an existing fuzzer.
-
-This function should be considered for advanced uses. It's often easier to use `map` and other functions in this
-module to create a fuzzer.
-
-Here is an example for a record:
-
-    import Random
-    import Simplify
-
-    type alias Position =
-        { x : Int, y : Int }
-
-    position : Fuzzer Position
-    position =
-        Fuzz.custom
-            (Random.map2 Position (Random.int -100 100) (Random.int -100 100))
-            (\{ x, y } -> Simplify.map Position (Simplify.int x) |> Simplify.andMap (Simplify.int y))
-
-Here is an example for a custom union type, assuming there is already a `genName : Generator String` defined:
-
-    type Question
-        = Name String
-        | Age Int
-
-    question =
-        let
-            generator =
-                Random.bool
-                    |> Random.andThen
-                        (\b ->
-                            if b then
-                                Random.map Name genName
-
-                            else
-                                Random.map Age (Random.int 0 120)
-                        )
-
-            simplifier question =
-                case question of
-                    Name n ->
-                        Simplify.string n |> Simplify.map Name
-
-                    Age i ->
-                        Simplify.int i |> Simplify.map Age
-        in
-        Fuzz.custom generator simplifier
-
--}
-custom : Generator a -> Simplifier a -> Fuzzer a
-custom generator simplifier =
-    Ok <|
-        Random.map (Simplify.Internal.simplifyTree simplifier) generator
+    Fuzz.Internal.Fuzzer a
 
 
 {-| A fuzzer for the unit value. Unit is a type with only one value, commonly
@@ -134,9 +67,7 @@ used as a placeholder.
 -}
 unit : Fuzzer ()
 unit =
-    RoseTree.singleton ()
-        |> Random.constant
-        |> Ok
+    constant ()
 
 
 {-| A fuzzer for boolean values. It's useful when building up fuzzers of complex
@@ -145,28 +76,21 @@ types that contain a boolean somewhere.
 We recommend against writing tests fuzzing over booleans. Write a unit test for
 the true and false cases explicitly.
 
+TODO ~janiczek: I'm not sure I even agree with this ^. What if you want to
+fuzz-test some invariant over the whole "input space" of a function, and you
+don't care what the boolean argument is?
+
 -}
 bool : Fuzzer Bool
 bool =
-    custom Random.bool Simplify.bool
+    oneOfValues [ False, True ]
 
 
 {-| A fuzzer for order values.
 -}
 order : Fuzzer Order
 order =
-    let
-        intToOrder i =
-            if i == 0 then
-                LT
-
-            else if i == 1 then
-                EQ
-
-            else
-                GT
-    in
-    custom (Random.map intToOrder (Random.int 0 2)) Simplify.order
+    oneOfValues [ LT, EQ, GT ]
 
 
 {-| A fuzzer for int values. It will never produce `NaN`, `Infinity`, or `-Infinity`.
@@ -177,16 +101,7 @@ numbers between -50 and 50 and especially zero.
 -}
 int : Fuzzer Int
 int =
-    let
-        generator =
-            Random.frequency
-                ( 3, Random.int -50 50 )
-                [ ( 0.2, Random.constant 0 )
-                , ( 1, Random.int 0 (Random.maxInt - Random.minInt) )
-                , ( 1, Random.int (Random.minInt - Random.maxInt) 0 )
-                ]
-    in
-    custom generator Simplify.int
+    Debug.todo "Fuzz.int"
 
 
 {-| A fuzzer for int values between a given minimum and maximum value,
@@ -200,18 +115,7 @@ the ints x or bigger.
 -}
 intRange : Int -> Int -> Fuzzer Int
 intRange lo hi =
-    if hi < lo then
-        Err <| "Fuzz.intRange was given a lower bound of " ++ String.fromInt lo ++ " which is greater than the upper bound, " ++ String.fromInt hi ++ "."
-
-    else
-        custom
-            (Random.frequency
-                ( 8, Random.int lo hi )
-                [ ( 1, Random.constant lo )
-                , ( 1, Random.constant hi )
-                ]
-            )
-            (Simplify.keepIf (\i -> i >= lo && i <= hi) Simplify.int)
+    Debug.todo "Fuzz.intRange"
 
 
 {-| A fuzzer for float values. It will never produce `NaN`, `Infinity`, or `-Infinity`.
@@ -222,17 +126,7 @@ favors numbers between -50 and 50, numbers between -1 and 1, and especially zero
 -}
 float : Fuzzer Float
 float =
-    let
-        generator =
-            Random.frequency
-                ( 3, Random.float -50 50 )
-                [ ( 0.5, Random.constant 0 )
-                , ( 1, Random.float -1 1 )
-                , ( 1, Random.float 0 (toFloat <| Random.maxInt - Random.minInt) )
-                , ( 1, Random.float (toFloat <| Random.minInt - Random.maxInt) 0 )
-                ]
-    in
-    custom generator Simplify.float
+    Debug.todo "Fuzz.float"
 
 
 {-| A fuzzer for float values within between a given minimum and maximum
@@ -241,18 +135,7 @@ values will also be within the range.
 -}
 floatRange : Float -> Float -> Fuzzer Float
 floatRange lo hi =
-    if hi < lo then
-        Err <| "Fuzz.floatRange was given a lower bound of " ++ String.fromFloat lo ++ " which is greater than the upper bound, " ++ String.fromFloat hi ++ "."
-
-    else
-        custom
-            (Random.frequency
-                ( 8, Random.float lo hi )
-                [ ( 1, Random.constant lo )
-                , ( 1, Random.constant hi )
-                ]
-            )
-            (Simplify.keepIf (\i -> i >= lo && i <= hi) Simplify.float)
+    Debug.todo "Fuzz.floatRange"
 
 
 {-| A fuzzer for percentage values. Generates random floats between `0.0` and
@@ -260,60 +143,16 @@ floatRange lo hi =
 -}
 percentage : Fuzzer Float
 percentage =
-    let
-        generator =
-            Random.frequency
-                ( 8, Random.float 0 1 )
-                [ ( 1, Random.constant 0 )
-                , ( 1, Random.constant 1 )
-                ]
-    in
-    custom generator Simplify.float
+    Debug.todo "Fuzz.percentage"
 
 
-{-| A fuzzer for char values. Generates random ascii chars disregarding the control
-characters and the extended character set.
+{-| A fuzzer for char values. Generates random ASCII chars disregarding the
+control characters and the extended character set.
 -}
 char : Fuzzer Char
 char =
-    custom asciiCharGenerator Simplify.character
-
-
-asciiCharGenerator : Generator Char
-asciiCharGenerator =
-    Random.map Char.fromCode (Random.int 32 126)
-
-
-unicodeCharGeneratorFrequencies : ( ( Float, Generator Char ), List ( Float, Generator Char ) )
-unicodeCharGeneratorFrequencies =
-    let
-        ascii =
-            asciiCharGenerator
-
-        whitespace =
-            Random.sample [ ' ', '\t', '\n' ] |> Random.map (Maybe.withDefault ' ')
-
-        tilde =
-            '̃'
-
-        circumflex =
-            '̂'
-
-        diaeresis =
-            '̈'
-
-        combiningDiacriticalMarks =
-            Random.sample [ circumflex, tilde, diaeresis ] |> Random.map (Maybe.withDefault circumflex)
-
-        emoji =
-            Random.sample [ '🌈', '❤', '🔥' ] |> Random.map (Maybe.withDefault '❤')
-    in
-    ( ( 4, ascii )
-    , [ ( 1, whitespace )
-      , ( 1, combiningDiacriticalMarks )
-      , ( 1, emoji )
-      ]
-    )
+    intRange 32 126
+        |> map Char.fromCode
 
 
 {-| Generates random printable unicode strings of up to 1000 characters.
@@ -323,39 +162,17 @@ Shorter strings are more common, especially the empty string.
 -}
 string : Fuzzer String
 string =
-    let
-        ( firstFreq, restFreqs ) =
-            unicodeCharGeneratorFrequencies
-
-        lengthGenerator =
-            Random.frequency
-                ( 3, Random.int 1 10 )
-                [ ( 0.2, Random.constant 0 )
-                , ( 1, Random.int 11 50 )
-                , ( 1, Random.int 50 1000 )
-                ]
-
-        unicodeGenerator =
-            frequencyList lengthGenerator firstFreq restFreqs
-                |> Random.map String.fromList
-    in
-    custom unicodeGenerator Simplify.string
+    Debug.todo "Fuzz.string"
 
 
 {-| Given a fuzzer of a type, create a fuzzer of a maybe for that type.
 -}
 maybe : Fuzzer a -> Fuzzer (Maybe a)
 maybe fuzzer =
-    let
-        toMaybe : Bool -> RoseTree a -> RoseTree (Maybe a)
-        toMaybe useNothing tree =
-            if useNothing then
-                RoseTree.singleton Nothing
-
-            else
-                RoseTree.map Just tree |> RoseTree.addChild (RoseTree.singleton Nothing)
-    in
-    (Result.map << Random.map2 toMaybe) (Random.oneIn 4) fuzzer
+    frequency
+        [ ( 1, constant Nothing )
+        , ( 3, map Just fuzzer )
+        ]
 
 
 {-| Given fuzzers for an error type and a success type, create a fuzzer for
@@ -363,16 +180,10 @@ a result.
 -}
 result : Fuzzer error -> Fuzzer value -> Fuzzer (Result error value)
 result fuzzerError fuzzerValue =
-    let
-        toResult : Bool -> RoseTree error -> RoseTree value -> RoseTree (Result error value)
-        toResult useError errorTree valueTree =
-            if useError then
-                RoseTree.map Err errorTree
-
-            else
-                RoseTree.map Ok valueTree
-    in
-    (Result.map2 <| Random.map3 toResult (Random.oneIn 4)) fuzzerError fuzzerValue
+    frequency
+        [ ( 1, map Err fuzzerError )
+        , ( 3, map Ok fuzzerValue )
+        ]
 
 
 {-| Given a fuzzer of a type, create a fuzzer of a list of that type.
@@ -380,109 +191,7 @@ Generates random lists of varying length, favoring shorter lists.
 -}
 list : Fuzzer a -> Fuzzer (List a)
 list fuzzer =
-    let
-        genLength =
-            Random.frequency
-                ( 1, Random.constant 0 )
-                [ ( 1, Random.constant 1 )
-                , ( 3, Random.int 2 10 )
-                , ( 2, Random.int 10 100 )
-                , ( 0.5, Random.int 100 400 )
-                ]
-    in
-    fuzzer
-        |> Result.map
-            (\validFuzzer ->
-                genLength
-                    |> Random.andThen (\a -> Random.list a validFuzzer)
-                    |> Random.map listSimplifyHelp
-            )
-
-
-listSimplifyHelp : List (RoseTree a) -> RoseTree (List a)
-listSimplifyHelp listOfTrees =
-    {- This extends listSimplifyRecurse algorithm with an attempt to simplify directly to the empty list. -}
-    listSimplifyRecurse listOfTrees
-        |> mapChildren (Lazy.List.cons <| RoseTree.singleton [])
-
-
-mapChildren : (LazyList (RoseTree a) -> LazyList (RoseTree a)) -> RoseTree a -> RoseTree a
-mapChildren fn (Rose root children) =
-    Rose root (fn children)
-
-
-listSimplifyRecurse : List (RoseTree a) -> RoseTree (List a)
-listSimplifyRecurse listOfTrees =
-    {- Simplifying a list of RoseTrees
-       We need to do two things. First, simplify individual values. Second, shorten the list.
-       To simplify individual values, we create every list copy of the input list where any
-       one value is replaced by a simplified form.
-       To shorten the length of the list, remove elements at various positions in the list.
-       In all cases, recurse! The goal is to make a little forward progress and then recurse.
-    -}
-    let
-        n =
-            List.length listOfTrees
-
-        root =
-            List.map RoseTree.root listOfTrees
-
-        dropFirstHalf : List (RoseTree a) -> RoseTree (List a)
-        dropFirstHalf list_ =
-            List.drop (List.length list_ // 2) list_
-                |> listSimplifyRecurse
-
-        dropSecondHalf : List (RoseTree a) -> RoseTree (List a)
-        dropSecondHalf list_ =
-            List.take (List.length list_ // 2) list_
-                |> listSimplifyRecurse
-
-        halved : LazyList (RoseTree (List a))
-        halved =
-            -- The list halving shortcut is useful only for large lists.
-            -- For small lists attempting to remove elements one by one is good enough.
-            if n >= 8 then
-                Lazy.lazy <|
-                    \_ ->
-                        Lazy.List.fromList [ dropFirstHalf listOfTrees, dropSecondHalf listOfTrees ]
-                            |> Lazy.force
-
-            else
-                Lazy.List.empty
-
-        simplifyOne prefix aList =
-            case aList of
-                [] ->
-                    Lazy.List.empty
-
-                (Rose x simplifiedXs) :: more ->
-                    Lazy.List.map (\childTree -> prefix ++ (childTree :: more) |> listSimplifyRecurse) simplifiedXs
-
-        simplifiedVals =
-            Lazy.lazy <|
-                \_ ->
-                    Lazy.List.numbers
-                        |> Lazy.List.map (\i -> i - 1)
-                        |> Lazy.List.take n
-                        |> Lazy.List.andThen
-                            (\i -> simplifyOne (List.take i listOfTrees) (List.drop i listOfTrees))
-                        |> Lazy.force
-
-        shortened =
-            Lazy.lazy <|
-                \_ ->
-                    List.range 0 (n - 1)
-                        |> Lazy.List.fromList
-                        |> Lazy.List.map (\index -> removeOne index listOfTrees)
-                        |> Lazy.List.map listSimplifyRecurse
-                        |> Lazy.force
-
-        removeOne index aList =
-            List.append
-                (List.take index aList)
-                (List.drop (index + 1) aList)
-    in
-    Rose root (append halved (append shortened simplifiedVals))
+    Debug.todo "Fuzz.list"
 
 
 {-| Given a fuzzer of a type, create a fuzzer of an array of that type.
@@ -494,60 +203,174 @@ array fuzzer =
 
 
 {-| Turn a pair of fuzzers into a fuzzer of pairs.
+
+TODO ~janiczek: if we're making a major release, what about
+pair : Fuzzer a -> Fuzzer b -> Fuzzer ( a, b )
+
 -}
 pair : ( Fuzzer a, Fuzzer b ) -> Fuzzer ( a, b )
 pair ( fuzzerA, fuzzerB ) =
-    map2 (\a b -> ( a, b )) fuzzerA fuzzerB
+    map2 Tuple.pair fuzzerA fuzzerB
 
 
 {-| Turn a triple of fuzzers into a fuzzer of triples.
+
+TODO ~janiczek: if we're making a major release, what about
+triple : Fuzzer a -> Fuzzer b -> Fuzzer c -> Fuzzer ( a, b, c )
+
 -}
 triple : ( Fuzzer a, Fuzzer b, Fuzzer c ) -> Fuzzer ( a, b, c )
 triple ( fuzzerA, fuzzerB, fuzzerC ) =
     map3 (\a b c -> ( a, b, c )) fuzzerA fuzzerB fuzzerC
 
 
-{-| Create a fuzzer that only and always returns the value provided, and performs no simplifying. This is hardly random,
-and so this function is best used as a helper when creating more complicated fuzzers.
+{-| Create a fuzzer that only and always returns the value provided, and performs
+no simplifying. This is hardly random, and so this function is best used as a
+helper when creating more complicated fuzzers.
 -}
 constant : a -> Fuzzer a
 constant x =
-    Ok <| Random.constant (RoseTree.singleton x)
+    Fuzzer <|
+        \prng ->
+            Generated
+                { value = x
+                , prng = prng
+                }
 
 
-{-| Map a function over a fuzzer. This applies to both the generated and the simplified values.
+{-| Map a function over a fuzzer.
 -}
 map : (a -> b) -> Fuzzer a -> Fuzzer b
-map =
-    Internal.map
+map fn (Fuzzer fuzzer) =
+    Fuzzer <|
+        \prng ->
+            case fuzzer prng of
+                Generated g ->
+                    Generated
+                        { value = fn g.value
+                        , prng = g.prng
+                        }
+
+                Rejected r ->
+                    Rejected r
 
 
 {-| Map over two fuzzers.
 -}
 map2 : (a -> b -> c) -> Fuzzer a -> Fuzzer b -> Fuzzer c
-map2 transform fuzzA fuzzB =
-    (Result.map2 << Random.map2 << map2RoseTree) transform fuzzA fuzzB
+map2 fn (Fuzzer fuzzerA) (Fuzzer fuzzerB) =
+    Fuzzer <|
+        \prng ->
+            case fuzzerA prng of
+                Generated a ->
+                    case fuzzerB a.prng of
+                        Generated b ->
+                            Generated
+                                { value = fn a.value b.value
+                                , prng = b.prng
+                                }
+
+                        Rejected r ->
+                            Rejected r
+
+                Rejected r ->
+                    Rejected r
 
 
 {-| Map over three fuzzers.
 -}
 map3 : (a -> b -> c -> d) -> Fuzzer a -> Fuzzer b -> Fuzzer c -> Fuzzer d
-map3 transform fuzzA fuzzB fuzzC =
-    (Result.map3 << Random.map3 << map3RoseTree) transform fuzzA fuzzB fuzzC
+map3 fn (Fuzzer fuzzerA) (Fuzzer fuzzerB) (Fuzzer fuzzerC) =
+    Fuzzer <|
+        \prng ->
+            case fuzzerA prng of
+                Generated a ->
+                    case fuzzerB a.prng of
+                        Generated b ->
+                            case fuzzerC b.prng of
+                                Generated c ->
+                                    Generated
+                                        { value = fn a.value b.value c.value
+                                        , prng = c.prng
+                                        }
+
+                                Rejected r ->
+                                    Rejected r
+
+                        Rejected r ->
+                            Rejected r
+
+                Rejected r ->
+                    Rejected r
 
 
 {-| Map over four fuzzers.
 -}
 map4 : (a -> b -> c -> d -> e) -> Fuzzer a -> Fuzzer b -> Fuzzer c -> Fuzzer d -> Fuzzer e
-map4 transform fuzzA fuzzB fuzzC fuzzD =
-    (Result.map4 << Random.map4 << map4RoseTree) transform fuzzA fuzzB fuzzC fuzzD
+map4 fn (Fuzzer fuzzerA) (Fuzzer fuzzerB) (Fuzzer fuzzerC) (Fuzzer fuzzerD) =
+    Fuzzer <|
+        \prng ->
+            case fuzzerA prng of
+                Generated a ->
+                    case fuzzerB a.prng of
+                        Generated b ->
+                            case fuzzerC b.prng of
+                                Generated c ->
+                                    case fuzzerD c.prng of
+                                        Generated d ->
+                                            Generated
+                                                { value = fn a.value b.value c.value d.value
+                                                , prng = d.prng
+                                                }
+
+                                        Rejected r ->
+                                            Rejected r
+
+                                Rejected r ->
+                                    Rejected r
+
+                        Rejected r ->
+                            Rejected r
+
+                Rejected r ->
+                    Rejected r
 
 
 {-| Map over five fuzzers.
 -}
 map5 : (a -> b -> c -> d -> e -> f) -> Fuzzer a -> Fuzzer b -> Fuzzer c -> Fuzzer d -> Fuzzer e -> Fuzzer f
-map5 transform fuzzA fuzzB fuzzC fuzzD fuzzE =
-    (Result.map5 << Random.map5 << map5RoseTree) transform fuzzA fuzzB fuzzC fuzzD fuzzE
+map5 fn (Fuzzer fuzzerA) (Fuzzer fuzzerB) (Fuzzer fuzzerC) (Fuzzer fuzzerD) (Fuzzer fuzzerE) =
+    Fuzzer <|
+        \prng ->
+            case fuzzerA prng of
+                Generated a ->
+                    case fuzzerB a.prng of
+                        Generated b ->
+                            case fuzzerC b.prng of
+                                Generated c ->
+                                    case fuzzerD c.prng of
+                                        Generated d ->
+                                            case fuzzerE d.prng of
+                                                Generated e ->
+                                                    Generated
+                                                        { value = fn a.value b.value c.value d.value e.value
+                                                        , prng = e.prng
+                                                        }
+
+                                                Rejected r ->
+                                                    Rejected r
+
+                                        Rejected r ->
+                                            Rejected r
+
+                                Rejected r ->
+                                    Rejected r
+
+                        Rejected r ->
+                            Rejected r
+
+                Rejected r ->
+                    Rejected r
 
 
 {-| Map over many fuzzers. This can act as `mapN` for `N > 5`.
@@ -556,8 +379,6 @@ The argument order is meant to accommodate chaining:
     map f aFuzzer
         |> andMap anotherFuzzer
         |> andMap aThirdFuzzer
-
-Note that simplifying may be better using `mapN`.
 
 -}
 andMap : Fuzzer a -> Fuzzer (a -> b) -> Fuzzer b
@@ -575,6 +396,9 @@ you could do this:
         [ ( 1, Fuzz.intRange -100 -1 )
         , ( 3, Fuzz.intRange 1 100 )
         ]
+
+This fuzzer will simplify towards the fuzzers earlier in the list (each of which
+will also apply its own way to simplify the values).
 
 There are a few circumstances in which this function will return an invalid
 fuzzer, which causes it to fail any test that uses it:
@@ -606,38 +430,39 @@ so:
 -}
 frequency : List ( Float, Fuzzer a ) -> Fuzzer a
 frequency aList =
-    if List.isEmpty aList then
-        invalid "You must provide at least one frequency pair."
-
-    else if List.any (\( weight, _ ) -> weight < 0) aList then
-        invalid "No frequency weights can be less than 0."
-
-    else if List.sum (List.map Tuple.first aList) <= 0 then
-        invalid "Frequency weights must sum to more than 0."
-
-    else
-        let
-            toRandom validList =
-                case validList of
-                    [] ->
-                        invalid "You must provide at least one frequency pair."
-
-                    first :: rest ->
-                        Ok (Random.frequency first rest)
-        in
-        aList
-            |> List.map extractValid
-            |> combineValid
-            |> Result.andThen toRandom
+    Debug.todo "Fuzz.frequency"
 
 
-extractValid : ( a, Valid b ) -> Valid ( a, b )
-extractValid ( a, valid ) =
-    Result.map (\b -> ( a, b )) valid
+{-| Create a `Fuzzer` by providing a list of probabilistic weights to use with
+values.
+For example, to create a `Fuzzer` that has a 1/4 chance of generating a string
+"foo", and a 3/4 chance of generating a string "bar", you could do this:
+
+    Fuzz.frequency
+        [ ( 1, "foo" )
+        , ( 3, "bar" )
+        ]
+
+This fuzzer will simplify towards the values earlier in the list.
+
+There are a few circumstances in which this function will return an invalid
+fuzzer, which causes it to fail any test that uses it:
+
+  - If you provide an empty list of frequencies
+  - If any of the weights are less than 0
+  - If the weights sum to 0
+
+-}
+frequencyValues : List ( Float, a ) -> Fuzzer a
+frequencyValues values =
+    frequency (List.map (Tuple.mapSecond constant) values)
 
 
 {-| Choose one of the given fuzzers at random. Each fuzzer has an equal chance
 of being chosen; to customize the probabilities, use [`frequency`](#frequency).
+
+This fuzzer will simplify towards the fuzzers earlier in the list (each of which
+will also apply its own way to simplify the values).
 
     Fuzz.oneOf
         [ Fuzz.intRange 0 3
@@ -646,14 +471,39 @@ of being chosen; to customize the probabilities, use [`frequency`](#frequency).
 
 -}
 oneOf : List (Fuzzer a) -> Fuzzer a
-oneOf aList =
-    if List.isEmpty aList then
-        invalid "You must pass at least one Fuzzer to Fuzz.oneOf."
+oneOf fuzzers =
+    case List.length fuzzers of
+        0 ->
+            invalid "oneOf: empty list"
 
-    else
-        aList
-            |> List.map (\fuzzer -> ( 1, fuzzer ))
-            |> frequency
+        length ->
+            internalInt (length - 1)
+                |> andThen
+                    (\i ->
+                        case List.getAt i fuzzers of
+                            Nothing ->
+                                -- shouldn't happen
+                                invalid "oneOf: bug - didn't find a generator in the list"
+
+                            Just fuzzer ->
+                                fuzzer
+                    )
+
+
+{-| Choose one of the given values at random. Each value has an equal chance
+of being chosen; to customize the probabilities, use [`frequencyValues`](#frequencyValues).
+
+This fuzzer will simplify towards the values earlier in the list.
+
+    Fuzz.oneOfValues
+        [ 999
+        , -42
+        ]
+
+-}
+oneOfValues : List a -> Fuzzer a
+oneOfValues aList =
+    oneOf (List.map constant aList)
 
 
 {-| A fuzzer that is invalid for the provided reason. Any fuzzers built with it
@@ -661,93 +511,200 @@ are also invalid. Any tests using an invalid fuzzer fail.
 -}
 invalid : String -> Fuzzer a
 invalid reason =
-    Err reason
+    Fuzzer <|
+        \prng ->
+            Rejected
+                { reason = reason
+                , prng = prng
+                }
 
 
-map2RoseTree : (a -> b -> c) -> RoseTree a -> RoseTree b -> RoseTree c
-map2RoseTree transform ((Rose root1 children1) as rose1) ((Rose root2 children2) as rose2) =
-    {- Simplifying a pair of RoseTrees
-       Recurse on all pairs created by substituting one element for any of its simplified values.
-       A weakness of this algorithm is that it expects that values can be simplified independently.
-       That is, to simplify from (a,b) to (a',b'), we must go through (a',b) or (a,b').
-       "No pairs sum to zero" is a pathological predicate that cannot be simplified this way.
-    -}
-    let
-        root =
-            transform root1 root2
+{-| TODO comment
+-}
+filter : String -> (a -> Bool) -> Fuzzer a -> Fuzzer a
+filter label predicate fuzzer =
+    fuzzer
+        |> andThen
+            (\value ->
+                if predicate value then
+                    constant value
 
-        simplify1 =
-            Lazy.List.map (\subtree -> map2RoseTree transform subtree rose2) children1
-
-        simplify2 =
-            Lazy.List.map (\subtree -> map2RoseTree transform rose1 subtree) children2
-    in
-    Rose root <| append simplify1 simplify2
+                else
+                    invalid <|
+                        "["
+                            ++ label
+                            ++ "] A value was filtered out: "
+                            ++ Test.Internal.toString value
+            )
 
 
+{-| TODO comment
+-}
+andThen : (a -> Fuzzer b) -> Fuzzer a -> Fuzzer b
+andThen fn (Fuzzer fuzzer) =
+    Fuzzer <|
+        \prng ->
+            case fuzzer prng of
+                Generated g ->
+                    let
+                        (Fuzzer newFuzzer) =
+                            fn g.value
+                    in
+                    newFuzzer g.prng
 
--- The RoseTree 'mapN, n > 2' functions below follow the same strategy as map2RoseTree.
--- They're implemented separately instead of in terms of `andMap` because this has significant perfomance benefits.
-
-
-map3RoseTree : (a -> b -> c -> d) -> RoseTree a -> RoseTree b -> RoseTree c -> RoseTree d
-map3RoseTree transform ((Rose root1 children1) as rose1) ((Rose root2 children2) as rose2) ((Rose root3 children3) as rose3) =
-    let
-        root =
-            transform root1 root2 root3
-
-        simplify1 =
-            Lazy.List.map (\childOf1 -> map3RoseTree transform childOf1 rose2 rose3) children1
-
-        simplify2 =
-            Lazy.List.map (\childOf2 -> map3RoseTree transform rose1 childOf2 rose3) children2
-
-        simplify3 =
-            Lazy.List.map (\childOf3 -> map3RoseTree transform rose1 rose2 childOf3) children3
-    in
-    Rose root <| append simplify1 (append simplify2 simplify3)
+                Rejected r ->
+                    Rejected r
 
 
-map4RoseTree : (a -> b -> c -> d -> e) -> RoseTree a -> RoseTree b -> RoseTree c -> RoseTree d -> RoseTree e
-map4RoseTree transform ((Rose root1 children1) as rose1) ((Rose root2 children2) as rose2) ((Rose root3 children3) as rose3) ((Rose root4 children4) as rose4) =
-    let
-        root =
-            transform root1 root2 root3 root4
-
-        simplify1 =
-            Lazy.List.map (\childOf1 -> map4RoseTree transform childOf1 rose2 rose3 rose4) children1
-
-        simplify2 =
-            Lazy.List.map (\childOf2 -> map4RoseTree transform rose1 childOf2 rose3 rose4) children2
-
-        simplify3 =
-            Lazy.List.map (\childOf3 -> map4RoseTree transform rose1 rose2 childOf3 rose4) children3
-
-        simplify4 =
-            Lazy.List.map (\childOf4 -> map4RoseTree transform rose1 rose2 rose3 childOf4) children4
-    in
-    Rose root <| append simplify1 (append simplify2 (append simplify3 simplify4))
+{-| TODO comment
+-}
+lazy : (() -> Fuzzer a) -> Fuzzer a
+lazy thunk =
+    Fuzzer <|
+        \prng ->
+            let
+                (Fuzzer fuzzer) =
+                    thunk ()
+            in
+            fuzzer prng
 
 
-map5RoseTree : (a -> b -> c -> d -> e -> f) -> RoseTree a -> RoseTree b -> RoseTree c -> RoseTree d -> RoseTree e -> RoseTree f
-map5RoseTree transform ((Rose root1 children1) as rose1) ((Rose root2 children2) as rose2) ((Rose root3 children3) as rose3) ((Rose root4 children4) as rose4) ((Rose root5 children5) as rose5) =
-    let
-        root =
-            transform root1 root2 root3 root4 root5
+internalInt : Int -> Fuzzer Int
+internalInt n =
+    rollDice (Random.int 0 n)
 
-        simplify1 =
-            Lazy.List.map (\childOf1 -> map5RoseTree transform childOf1 rose2 rose3 rose4 rose5) children1
 
-        simplify2 =
-            Lazy.List.map (\childOf2 -> map5RoseTree transform rose1 childOf2 rose3 rose4 rose5) children2
+{-| A fuzzer for boolean values, generating True with the given probability
+(0.0 = always False, 1.0 = always True).
 
-        simplify3 =
-            Lazy.List.map (\childOf3 -> map5RoseTree transform rose1 rose2 childOf3 rose4 rose5) children3
+Probabilities outside the `0..1` range will be clamped to `0..1`.
 
-        simplify4 =
-            Lazy.List.map (\childOf4 -> map5RoseTree transform rose1 rose2 rose3 childOf4 rose5) children4
+-}
+weightedBool : Float -> Fuzzer Bool
+weightedBool p =
+    (if p <= 0 then
+        forcedChoice 0
 
-        simplify5 =
-            Lazy.List.map (\childOf5 -> map5RoseTree transform rose1 rose2 rose3 rose4 childOf5) children5
-    in
-    Rose root <| append simplify1 (append simplify2 (append simplify3 (append simplify4 simplify5)))
+     else if p >= 1 then
+        forcedChoice 1
+
+     else
+        rollDice (weightedBoolGenerator p)
+    )
+        |> map intToBool
+
+
+{-| This is the only place that accepts Random.Generators.
+And only Int ones at that!
+
+This is because our underlying implementation is a sequence of Ints (RandomRun).
+All other generated values (Floats, Bools, ...) have to be somehow mapped one or
+more Ints.
+
+Based on the PRNG value, this function:
+
+  - either draws and remembers a random number (PRNG.Random)
+  - or picks a number from the hardcoded list. (PRNG.Hardcoded)
+
+-}
+rollDice : Random.Generator Int -> Fuzzer Int
+rollDice diceGenerator =
+    Fuzzer <|
+        \prng ->
+            if RandomRun.isOverCapacity (PRNG.getRun prng) then
+                Rejected
+                    { reason = "Your fuzzers hit a recursion limit"
+                    , prng = prng
+                    }
+
+            else
+                case prng of
+                    Random r ->
+                        let
+                            ( diceRoll, newSeed ) =
+                                Random.step diceGenerator r.seed
+                        in
+                        if diceRoll < 0 then
+                            Rejected
+                                { reason = "elm-test bug: generated a choice < 0"
+                                , prng = prng
+                                }
+
+                        else
+                            Generated
+                                { value = diceRoll
+                                , prng =
+                                    Random
+                                        { seed = newSeed
+                                        , run = RandomRun.append diceRoll r.run
+                                        }
+                                }
+
+                    Hardcoded h ->
+                        case RandomRun.nextChoice h.unusedPart of
+                            Nothing ->
+                                Rejected
+                                    { reason = "elm-test internals: hardcoded PRNG run out of numbers"
+                                    , prng = prng
+                                    }
+
+                            Just ( hardcodedChoice, restOfChoices ) ->
+                                Generated
+                                    { value = hardcodedChoice
+                                    , prng = Hardcoded { h | unusedPart = restOfChoices }
+                                    }
+
+
+forcedChoice : Int -> Fuzzer Int
+forcedChoice n =
+    Fuzzer <|
+        \prng ->
+            if n < 0 then
+                Rejected
+                    { reason = "elm-test bug: forcedChoice: n < 0"
+                    , prng = prng
+                    }
+
+            else if RandomRun.isOverCapacity (PRNG.getRun prng) then
+                Rejected
+                    { reason = "Your fuzzers hit a recursion limit"
+                    , prng = prng
+                    }
+
+            else
+                case prng of
+                    Random r ->
+                        Generated
+                            { value = n
+                            , prng = Random { r | run = RandomRun.append n r.run }
+                            }
+
+                    Hardcoded _ ->
+                        Rejected
+                            { reason = "elm-test internals: tried to overwrite a hardcoded PRNG"
+                            , prng = prng
+                            }
+
+
+{-| We could golf this to ((/=) 0) but this is perhaps more readable.
+-}
+intToBool : Int -> Bool
+intToBool n =
+    if n == 0 then
+        False
+
+    else
+        True
+
+
+weightedBoolGenerator : Float -> Random.Generator Int
+weightedBoolGenerator p =
+    Random.float 0 1
+        |> Random.map
+            (\f ->
+                if f <= p then
+                    1
+
+                else
+                    0
+            )

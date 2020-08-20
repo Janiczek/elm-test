@@ -8,8 +8,8 @@ import Test.Runner.Failure exposing (InvalidReason(..), Reason(..))
 
 
 type Test
-    = UnitTest (() -> List Expectation)
-    | FuzzTest (Random.Seed -> Int -> List Expectation)
+    = UnitTest (() -> Expectation)
+    | FuzzTest (Random.Seed -> Int -> Expectation)
     | Labeled String Test
     | Skipped Test
     | Only Test
@@ -21,7 +21,7 @@ type Test
 failNow : { description : String, reason : Reason } -> Test
 failNow record =
     UnitTest
-        (\() -> [ Test.Expectation.fail record ])
+        (\() -> Test.Expectation.fail record)
 
 
 blankDescriptionFailure : Test

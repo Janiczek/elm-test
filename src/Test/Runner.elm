@@ -39,9 +39,11 @@ import Char
 import Elm.Kernel.Test
 import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer)
-import Lazy.List as LazyList exposing (LazyList)
+import Fuzz.Internal
+import GenResult exposing (GenResult(..))
+import PRNG exposing (PRNG)
 import Random
-import RoseTree exposing (RoseTree(..))
+import RandomRun exposing (RandomRun)
 import String
 import Test exposing (Test)
 import Test.Expectation
@@ -53,14 +55,14 @@ import Test.Runner.Failure exposing (Reason(..))
 list of `Expectation`s.
 -}
 type Runnable
-    = Thunk (() -> List Expectation)
+    = Thunk (() -> Expectation)
 
 
 {-| A function which, when evaluated, produces a list of expectations. Also a
 list of labels which apply to this outcome.
 -}
 type alias Runner =
-    { run : () -> List Expectation
+    { run : () -> Expectation
     , labels : List String
     }
 
@@ -131,14 +133,14 @@ countRunnables runnable =
             countAllRunnables runners
 
 
-run : Runnable -> List Expectation
+run : Runnable -> Expectation
 run (Thunk fn) =
     case runThunk fn of
-        Ok tests ->
-            tests
+        Ok test ->
+            test
 
         Err message ->
-            [ Expect.fail ("This test failed because it threw an exception: \"" ++ message ++ "\"") ]
+            Expect.fail ("This test failed because it threw an exception: \"" ++ message ++ "\"")
 
 
 runThunk : (() -> a) -> Result String a
@@ -454,35 +456,41 @@ formatLabels formatDescription formatTest labels =
                 |> List.reverse
 
 
-type alias Shrunken a =
-    { down : LazyList (RoseTree a)
-    , over : LazyList (RoseTree a)
-    }
-
-
 {-| A `Simplifiable a` is an opaque type that allows you to obtain a value of type
 `a` that is simpler than the one you've previously obtained.
 -}
 type Simplifiable a
-    = Simplifiable (Shrunken a)
+    = Simplifiable
+        { randomRun : RandomRun
+        , fuzzer : Fuzzer a
+        }
 
 
 {-| Given a fuzzer, return a random generator to produce a value and a
 Simplifiable. The value is what a fuzz test would have received as input.
--}
-fuzz : Fuzzer a -> Result String (Random.Generator ( a, Simplifiable a ))
-fuzz fuzzer =
-    case fuzzer of
-        Ok validFuzzer ->
-            validFuzzer
-                |> Random.map
-                    (\(Rose root children) ->
-                        ( root, Simplifiable { down = children, over = LazyList.empty } )
-                    )
-                |> Ok
 
-        Err reason ->
-            Err <| "Cannot call `fuzz` with an invalid fuzzer: " ++ reason
+Note that fuzzers aren't generated to succeed, which is why this function returns
+a Result. The String inside the Err case will contain a failure reason.
+
+-}
+fuzz : Fuzzer a -> Random.Generator (Result String ( a, Simplifiable a ))
+fuzz fuzzer =
+    Random.independentSeed
+        |> Random.map
+            (\seed ->
+                case Fuzz.Internal.generate (PRNG.random seed) fuzzer of
+                    Generated { value, prng } ->
+                        Ok
+                            ( value
+                            , Simplifiable
+                                { randomRun = PRNG.getRun prng
+                                , fuzzer = fuzzer
+                                }
+                            )
+
+                    Rejected { reason } ->
+                        Err reason
+            )
 
 
 {-| Given a Simplifiable, attempt to simplify the value further. Pass `False` to
@@ -491,20 +499,14 @@ caused the test to **fail**. This will attempt to find a simpler value. Pass
 `True` if the test passed. If you have already seen a failure, this will attempt
 to simplify that failure in another way. In both cases, it may be impossible to
 simplify the value, represented by `Nothing`.
+
+TODO ~janiczek: why is this needed? Why let the user simplify across many steps
+instead of all at once? Like this:
+
+    simplify : (a -> Bool) -> Simplifiable a -> Maybe ( a, Simplifiable a )
+    simplify : (a -> Expectation) -> Simplifiable a -> Maybe ( a, Simplifiable a )
+
 -}
 simplify : Bool -> Simplifiable a -> Maybe ( a, Simplifiable a )
-simplify causedPass (Simplifiable { down, over }) =
-    let
-        tryNext =
-            if causedPass then
-                over
-
-            else
-                down
-    in
-    case LazyList.headAndTail tryNext of
-        Just ( Rose root children, tl ) ->
-            Just ( root, Simplifiable { down = children, over = tl } )
-
-        Nothing ->
-            Nothing
+simplify causedPass (Simplifiable { randomRun, fuzzer }) =
+    Debug.todo "Test.Runner.simplify"

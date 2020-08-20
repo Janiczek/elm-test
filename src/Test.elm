@@ -147,7 +147,7 @@ test untrimmedDesc thunk =
         Internal.blankDescriptionFailure
 
     else
-        Internal.Labeled desc (Internal.UnitTest (\() -> [ thunk () ]))
+        Internal.Labeled desc (Internal.UnitTest thunk)
 
 
 {-| Returns a [`Test`](#Test) that is "TODO" (not yet implemented). These tests

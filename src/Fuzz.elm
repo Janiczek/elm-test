@@ -237,7 +237,55 @@ Shorter strings are more common, especially the empty string.
 -}
 string : Fuzzer String
 string =
-    Debug.todo "Fuzz.string"
+    frequency
+        [ ( 0.2, constant "" )
+        , ( 3, stringOfLengthBetween 1 10 )
+        , ( 1, stringOfLengthBetween 11 50 )
+        , ( 1, stringOfLengthBetween 50 1000 )
+        ]
+
+
+stringOfLengthBetween : Int -> Int -> Fuzzer String
+stringOfLengthBetween min max =
+    listOfLengthBetween min max unicodeChar
+        |> map String.fromList
+
+
+{-| TODO ~janiczek: what about exposing this?
+-}
+unicodeChar : Fuzzer Char
+unicodeChar =
+    let
+        whitespaceChar : Fuzzer Char
+        whitespaceChar =
+            oneOfValues
+                [ ' '
+                , '\t'
+                , '\n'
+                ]
+
+        combiningDiacriticalMarkChar : Fuzzer Char
+        combiningDiacriticalMarkChar =
+            oneOfValues
+                [ '̂'
+                , '̃'
+                , '̈'
+                ]
+
+        emojiChar : Fuzzer Char
+        emojiChar =
+            oneOfValues
+                [ '🌈'
+                , '❤'
+                , '🔥'
+                ]
+    in
+    frequency
+        [ ( 4, char )
+        , ( 1, whitespaceChar )
+        , ( 1, combiningDiacriticalMarkChar )
+        , ( 1, emojiChar )
+        ]
 
 
 {-| Given a fuzzer of a type, create a fuzzer of a maybe for that type.
@@ -266,7 +314,78 @@ Generates random lists of varying length, favoring shorter lists.
 -}
 list : Fuzzer a -> Fuzzer (List a)
 list fuzzer =
-    Debug.todo "Fuzz.list"
+    frequency
+        [ ( 1, constant [] )
+        , ( 1, map List.singleton fuzzer )
+        , ( 3, listOfLengthBetween 2 10 fuzzer )
+        , ( 2, listOfLengthBetween 10 100 fuzzer )
+        , ( 0.5, listOfLengthBetween 100 400 fuzzer )
+        ]
+
+
+{-| TODO ~janiczek: what about exposing this?
+-}
+listOfLengthBetween : Int -> Int -> Fuzzer a -> Fuzzer (List a)
+listOfLengthBetween lo hi itemFuzzer =
+    if lo > hi then
+        invalid <|
+            "elm-test bug: Fuzz.listOfLengthBetween was given a lower bound of "
+                ++ String.fromInt lo
+                ++ " which is greater than the upper bound, "
+                ++ String.fromInt hi
+                ++ "."
+
+    else if hi <= 0 then
+        constant []
+
+    else
+        let
+            average : Float
+            average =
+                toFloat lo + toFloat hi / 2
+
+            continueProbability : Float
+            continueProbability =
+                {- Taken from Python Hypothesis library (ListStrategy).
+                   It should supposedly be a geometric distribution, although I
+                   don't see the connection from the below formula. ~janiczek
+                -}
+                1 - 1 / (1 + average)
+
+            addItem : Int -> List a -> Fuzzer (List a)
+            addItem length acc =
+                itemFuzzer
+                    |> andThen
+                        (\item ->
+                            go (length + 1) (item :: acc)
+                        )
+
+            end : List a -> Fuzzer (List a)
+            end acc =
+                constant (List.reverse acc)
+
+            go : Int -> List a -> Fuzzer (List a)
+            go length acc =
+                if length < lo then
+                    forcedChoice 1
+                        |> andThen (\_ -> addItem length acc)
+
+                else if length == hi then
+                    forcedChoice 0
+                        |> andThen (\_ -> end acc)
+
+                else
+                    weightedBool continueProbability
+                        |> andThen
+                            (\oneMorePlease ->
+                                if oneMorePlease then
+                                    addItem length acc
+
+                                else
+                                    end acc
+                            )
+        in
+        go 0 []
 
 
 {-| Given a fuzzer of a type, create a fuzzer of an array of that type.
@@ -504,8 +623,48 @@ so:
 
 -}
 frequency : List ( Float, Fuzzer a ) -> Fuzzer a
-frequency aList =
-    Debug.todo "Fuzz.frequency"
+frequency fuzzers =
+    if List.isEmpty fuzzers then
+        invalid "You must provide at least one frequency pair."
+
+    else if List.any (\( w, _ ) -> w < 0) fuzzers then
+        invalid "No frequency weights can be less than 0."
+
+    else
+        let
+            weightSum =
+                List.foldl (\( w, _ ) acc -> w + acc) 0 fuzzers
+        in
+        if weightSum == 0 then
+            invalid "Frequency weights must sum to more than 0."
+
+        else
+            percentage
+                |> andThen
+                    (\p ->
+                        let
+                            f : Float
+                            f =
+                                p * weightSum
+
+                            go : Float -> List ( Float, Fuzzer a ) -> Fuzzer a
+                            go countdown acc =
+                                case acc of
+                                    [] ->
+                                        invalid "elm-test bug: frequency encountered empty list after checking for it"
+
+                                    [ ( _, last ) ] ->
+                                        last
+
+                                    ( w, current ) :: rest ->
+                                        if countdown <= w then
+                                            current
+
+                                        else
+                                            go (countdown - w) rest
+                        in
+                        go f fuzzers
+                    )
 
 
 {-| Create a `Fuzzer` by providing a list of probabilistic weights to use with

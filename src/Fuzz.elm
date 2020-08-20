@@ -45,6 +45,7 @@ Instead of using a tuple, consider using [`fuzz2`][fuzz2] or [`fuzz3`][fuzz3].
 import Array exposing (Array)
 import Char
 import Elm.Kernel.Debug
+import Fuzz.Float
 import Fuzz.Internal exposing (Fuzzer(..))
 import GenResult exposing (GenResult(..))
 import MicroListExtra as List
@@ -93,15 +94,21 @@ order =
     oneOfValues [ LT, EQ, GT ]
 
 
-{-| A fuzzer for int values. It will never produce `NaN`, `Infinity`, or `-Infinity`.
+{-| A fuzzer for int values. It will never produce `NaN`, `Infinity`, or
+`-Infinity`.
 
-It's possible for this fuzzer to generate any 32-bit integer, signed or unsigned, but it favors
-numbers between -50 and 50 and especially zero.
+It's possible for this fuzzer to generate any 32-bit integer, signed or unsigned,
+but it favors numbers between -50 and 50 and especially zero.
 
 -}
 int : Fuzzer Int
 int =
-    Debug.todo "Fuzz.int"
+    frequency
+        [ ( 0.2, constant 0 )
+        , ( 3, intRange -50 50 )
+        , ( 1, intRange 0 0xFFFFFFFF )
+        , ( 1, intRange (negate 0xFFFFFFFF) 0 )
+        ]
 
 
 {-| A fuzzer for int values between a given minimum and maximum value,
@@ -115,7 +122,51 @@ the ints x or bigger.
 -}
 intRange : Int -> Int -> Fuzzer Int
 intRange lo hi =
-    Debug.todo "Fuzz.intRange"
+    if hi < lo then
+        invalid <|
+            "Fuzz.intRange was given a lower bound of "
+                ++ String.fromInt lo
+                ++ " which is greater than the upper bound, "
+                ++ String.fromInt hi
+                ++ "."
+
+    else
+        frequency
+            [ ( 1, constant lo )
+            , ( 1, constant hi )
+            , ( 8, intRangeHelp lo hi )
+            ]
+
+
+intRangeHelp : Int -> Int -> Fuzzer Int
+intRangeHelp lo hi =
+    if lo >= 0 then
+        -- both non-negative
+        internalInt (hi - lo)
+            {- intRange 2 5: internalInt 3: 0,1,2,3
+               => (+) 2 => 2,3,4,5
+               simplifying towards zero, not Inf
+            -}
+            |> map (\n -> n + lo)
+
+    else if hi <= 0 then
+        -- both negative
+        internalInt (hi - lo)
+            {- intRange -5 -2: internalInt 3: 0,1,2,3
+               => negate => -0,-1,-2,-3
+               => (+) -2 => -2,-3,-4,-5
+               simplifying towards zero, not -Inf
+            -}
+            |> map (\n -> negate n + hi)
+
+    else
+        {- somewhere in the middle, divide it into negative and positive ranges,
+           both of which will simplify towards zero.
+        -}
+        oneOf
+            [ intRangeHelp 0 hi -- the conditions above guarantee hi >= 1
+            , intRangeHelp lo -1 -- the conditions above guarantee lo <= -1
+            ]
 
 
 {-| A fuzzer for float values. It will never produce `NaN`, `Infinity`, or `-Infinity`.
@@ -140,10 +191,34 @@ floatRange lo hi =
 
 {-| A fuzzer for percentage values. Generates random floats between `0.0` and
 `1.0`. It will test zero and one about 10% of the time each.
+
+Simplifies towards zero.
+
 -}
 percentage : Fuzzer Float
 percentage =
-    Debug.todo "Fuzz.percentage"
+    frequency
+        [ ( 1, constant 0 )
+        , ( 1, constant 1 )
+        , ( 8, percentageHelp )
+        ]
+
+
+{-| Simplifies towards 0.
+
+We can't use Random.Generators here as all fuzzed values must be representable as
+1+ ints. We generally use a pair of 32bit ints to represent a 64bit float.
+
+-}
+percentageHelp : Fuzzer Float
+percentageHelp =
+    pair ( int32, int32 )
+        |> map Fuzz.Float.fractionalFloat
+
+
+int32 : Fuzzer Int
+int32 =
+    internalInt 0xFFFFFFFF
 
 
 {-| A fuzzer for char values. Generates random ASCII chars disregarding the
@@ -569,6 +644,8 @@ lazy thunk =
             fuzzer prng
 
 
+{-| Will simplify towards 0.
+-}
 internalInt : Int -> Fuzzer Int
 internalInt n =
     rollDice (Random.int 0 n)
@@ -578,6 +655,8 @@ internalInt n =
 (0.0 = always False, 1.0 = always True).
 
 Probabilities outside the `0..1` range will be clamped to `0..1`.
+
+TODO ~janiczek: Does this actually shrink toward True and not False?
 
 -}
 weightedBool : Float -> Fuzzer Bool

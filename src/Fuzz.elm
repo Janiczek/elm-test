@@ -174,10 +174,20 @@ intRangeHelp lo hi =
 It's possible for this fuzzer to generate any other floating-point value, but it
 favors numbers between -50 and 50, numbers between -1 and 1, and especially zero.
 
+TODO ~janiczek: that ^ isn't true about the current Fuzz.float. It never
+generates floats outside of the 32bit int range, like, let's say, 17179869184.
+We should probably fix that?
+
 -}
 float : Fuzzer Float
 float =
-    Debug.todo "Fuzz.float"
+    frequency
+        [ ( 0.5, constant 0 )
+        , ( 1, floatRange -1 1 )
+        , ( 3, floatRange -50 50 )
+        , ( 1, floatRange 0 (toFloat 0xFFFFFFFF) )
+        , ( 1, floatRange (toFloat (negate 0xFFFFFFFF)) 0 )
+        ]
 
 
 {-| A fuzzer for float values within between a given minimum and maximum
@@ -186,7 +196,25 @@ values will also be within the range.
 -}
 floatRange : Float -> Float -> Fuzzer Float
 floatRange lo hi =
-    Debug.todo "Fuzz.floatRange"
+    if hi < lo then
+        invalid <|
+            "Fuzz.floatRange was given a lower bound of "
+                ++ String.fromFloat lo
+                ++ " which is greater than the upper bound, "
+                ++ String.fromFloat hi
+                ++ "."
+
+    else
+        frequency
+            [ ( 1, constant lo )
+            , ( 1, constant hi )
+            , ( 8, floatRangeHelp lo hi )
+            ]
+
+
+floatRangeHelp : Float -> Float -> Fuzzer Float
+floatRangeHelp lo hi =
+    Debug.todo "floatRangeHelp"
 
 
 {-| A fuzzer for percentage values. Generates random floats between `0.0` and

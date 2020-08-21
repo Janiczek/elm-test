@@ -277,7 +277,8 @@ binarySearchLoop ({ low, high, state, updateRun } as options) =
     if low + 1 < high then
         let
             mid =
-                (low + high) // 2
+                -- `(low + high) // 2` would cause integer overflow
+                low + (high - low) // 2
 
             newRun =
                 updateRun mid options.state.randomRun

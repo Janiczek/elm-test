@@ -4,6 +4,7 @@ import Fuzz.Internal exposing (Fuzzer)
 import GenResult exposing (GenResult(..))
 import PRNG exposing (PRNG)
 import Random exposing (Generator)
+import RandomRun exposing (RandomRun)
 import Simplify
 import Test.Expectation exposing (Expectation(..))
 import Test.Internal exposing (Test(..), blankDescriptionFailure)
@@ -91,7 +92,12 @@ runOneFuzzIteration fuzzer getExpectation ( _, currentSeed ) =
                     Nothing
 
                 Generated { prng, value } ->
-                    testGeneratedValue value prng fuzzer getExpectation
+                    testGeneratedValue
+                        { getExpectation = getExpectation
+                        , fuzzer = fuzzer
+                        , randomRun = PRNG.getRun prng
+                        , value = value
+                        }
     in
     ( maybeFailure, nextSeed )
 
@@ -117,31 +123,29 @@ foldUntil remainingRuns endingCondition initialState f =
         foldUntil (remainingRuns - 1) endingCondition (f initialState) f
 
 
-{-| Given a rosetree -- a root to test and branches of simplifications -- run the test and perform simplification if it fails.
+{-| TODO ~janiczek: docs
 -}
-testGeneratedValue : a -> PRNG -> Fuzzer a -> (a -> Expectation) -> Maybe Failure
-testGeneratedValue value prng fuzzer getExpectation =
-    case getExpectation value of
+testGeneratedValue : Simplify.State a -> Maybe Failure
+testGeneratedValue state =
+    case state.getExpectation state.value of
         Pass ->
             Nothing
 
-        _ ->
-            Just <| findSimplestFailure prng fuzzer getExpectation
+        Fail _ ->
+            Just <| findSimplestFailure state
 
 
-{-| Knowing that the rosetree's root already failed, finds the key and value of the simplest failure.
+{-| TODO ~janiczek: docs
 -}
-findSimplestFailure : PRNG -> Fuzzer a -> (a -> Expectation) -> Failure
-findSimplestFailure prng fuzzer getExpectation =
+findSimplestFailure : Simplify.State a -> Failure
+findSimplestFailure state =
     let
-        ( simplestValue, _ ) =
-            Simplify.simplify
-                getExpectation
-                fuzzer
-                prng
+        simplestValue : a
+        simplestValue =
+            Simplify.simplify state
     in
     { given = Test.Internal.toString simplestValue
-    , expectation = getExpectation simplestValue
+    , expectation = state.getExpectation simplestValue
     }
 
 

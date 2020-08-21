@@ -7,8 +7,6 @@ import FuzzerTests exposing (fuzzerTests)
 import Helpers exposing (..)
 import Random
 import RunnerTests
-import Simplify
-import SimplifyTests
 import Test exposing (..)
 import Test.Html.EventTests
 import Test.Html.ExampleAppTests
@@ -28,7 +26,6 @@ all =
         , expectationTests
         , fuzzerTests
         , floatWithinTests
-        , SimplifyTests.all
         , RunnerTests.all
         , elmHtmlTests
         ]
@@ -132,8 +129,7 @@ regressions =
                (Issue numbers refer to elm-community/elm-test.)
             -}
             \() ->
-                fuzz
-                    (custom (Random.int 1 8) Simplify.simplest)
+                fuzz (intRange 1 8)
                     "fuzz tests run 100 times"
                     (Expect.notEqual 5)
                     |> expectTestToFail

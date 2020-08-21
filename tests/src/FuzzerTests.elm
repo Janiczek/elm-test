@@ -35,38 +35,7 @@ fuzzerTests =
             (Expect.greaterThan 0)
         , fuzz (result string int) "Fuzz.result" <| \r -> Expect.pass
         , describe "Whitebox testing using Fuzz.Internal"
-            [ fuzz randomSeedFuzzer "the same value is generated with and without simplifying" <|
-                \seed ->
-                    let
-                        step gen =
-                            Random.step gen seed
-
-                        aFuzzer =
-                            triple
-                                ( pair ( list int, array float )
-                                , pair
-                                    ( maybe bool
-                                    , result unit char
-                                    )
-                                , pair
-                                    ( triple
-                                        ( percentage
-                                        , map2 (+) int int
-                                        , frequency [ ( 1, constant True ), ( 3, constant False ) ]
-                                        )
-                                    , triple ( intRange 0 100, floatRange -51 pi, map abs int )
-                                    )
-                                )
-                                |> Test.Runner.fuzz
-
-                        valNoSimplify =
-                            aFuzzer |> Result.map (Random.map Tuple.first >> step >> Tuple.first)
-
-                        valWithSimplify =
-                            aFuzzer |> Result.map (step >> Tuple.first >> Tuple.first)
-                    in
-                    Expect.equal valNoSimplify valWithSimplify
-            , simplifyingTests
+            [ simplifyingTests
             , manualFuzzerTests
             , unicodeStringFuzzerTests
             ]
@@ -120,14 +89,17 @@ type alias SimplifyResult a =
 
 initialSimplifyResult : Fuzzer a -> Random.Seed -> SimplifyResult a
 initialSimplifyResult fuzzer seed =
-    case Test.Runner.fuzz fuzzer of
-        Ok generator ->
-            Random.step generator seed
-                |> Tuple.first
-                |> Just
+    Random.step (Test.Runner.fuzz fuzzer) seed
+        |> Result.toMaybe
 
-        Err _ ->
-            Nothing
+
+toExpectation : (a -> Bool) -> a -> Expectation
+toExpectation predicate value =
+    if predicate value then
+        Expect.pass
+
+    else
+        Expect.fail "failed test"
 
 
 manualFuzzerTests : Test
@@ -154,25 +126,14 @@ manualFuzzerTests =
                     pair =
                         initialSimplifyResult fuzzer seed
 
-                    unfold acc maybePair =
-                        case maybePair of
-                            Just ( valN, simplifyN ) ->
-                                if failsTest valN then
-                                    unfold (valN :: acc) (Test.Runner.simplify False simplifyN)
-
-                                else
-                                    unfold acc (Test.Runner.simplify True simplifyN)
-
-                            Nothing ->
-                                acc
+                    finalValue =
+                        Test.Runner.simplify (failsTest >> toExpectation) pair
                 in
-                unfold [] pair
+                finalValue
                     |> Expect.all
-                        [ List.all failsTest >> Expect.equal True >> Expect.onFail "Not all elements were even"
-                        , List.head
-                            >> Maybe.map (Expect.all [ Expect.lessThan 5, Expect.atLeast 0 ])
-                            >> Maybe.withDefault (Expect.fail "Did not cause failure")
-                        , List.reverse >> List.head >> Expect.equal (Maybe.map Tuple.first pair)
+                        [ failsTest >> Expect.equal True >> Expect.onFail "Wasn't even"
+                        , Expect.lessThan 5
+                        , Expect.atLeast 0
                         ]
         , fuzz randomSeedFuzzer "No strings contain the letter e" <|
             \seed ->
@@ -187,61 +148,14 @@ manualFuzzerTests =
                     pair =
                         initialSimplifyResult fuzzer seed
 
-                    unfold acc maybePair =
-                        case maybePair of
-                            Just ( valN, simplifyN ) ->
-                                if failsTest valN then
-                                    unfold (valN :: acc) (Test.Runner.simplify False simplifyN)
-
-                                else
-                                    unfold acc (Test.Runner.simplify True simplifyN)
-
-                            Nothing ->
-                                acc
+                    finalValue =
+                        Test.Runner.simplify (failsTest >> toExpectation) pair
                 in
-                unfold [] pair
+                finalValue
                     |> Expect.all
-                        [ List.all failsTest >> Expect.equal True >> Expect.onFail "Not all contained the letter e"
-                        , List.head >> Expect.equal (Just "e")
-                        , List.reverse >> List.head >> Expect.equal (Maybe.map Tuple.first pair)
+                        [ failsTest >> Expect.equal True >> Expect.onFail "Didn't contain the letter e"
+                        , Expect.equal "e"
                         ]
-        , fuzz randomSeedFuzzer "List simplifier finds the smallest counter example" <|
-            \seed ->
-                let
-                    fuzzer : Fuzzer (List Int)
-                    fuzzer =
-                        Fuzz.list Fuzz.int
-
-                    allEven : List Int -> Bool
-                    allEven xs =
-                        List.all (\x -> (x |> modBy 2) == 0) xs
-
-                    initialSimplify : SimplifyResult (List Int)
-                    initialSimplify =
-                        initialSimplifyResult fuzzer seed
-
-                    simplify : Maybe (List Int) -> SimplifyResult (List Int) -> Maybe (List Int)
-                    simplify simplified lastSimplify =
-                        case lastSimplify of
-                            Just ( valN, simplifyN ) ->
-                                simplify
-                                    (if allEven valN then
-                                        simplified
-
-                                     else
-                                        Just valN
-                                    )
-                                    (Test.Runner.simplify (allEven valN) simplifyN)
-
-                            Nothing ->
-                                simplified
-                in
-                case simplify Nothing initialSimplify of
-                    Just simplified ->
-                        Expect.equal [ 1 ] simplified
-
-                    Nothing ->
-                        Expect.pass
         ]
 
 

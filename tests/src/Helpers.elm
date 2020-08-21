@@ -1,9 +1,8 @@
-module Helpers exposing (different, expectPass, expectTestToFail, expectToFail, randomSeedFuzzer, same, succeeded, testSimplifying, testStringLengthIsPreserved)
+module Helpers exposing (different, expectPass, expectTestToFail, expectToFail, randomSeedFuzzer, same, succeeded, testStringLengthIsPreserved)
 
 import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer)
 import Random
-import Simplify
 import Test exposing (Test)
 import Test.Runner exposing (Runner, SeededRunners)
 import Test.Runner.Failure exposing (Reason(..))
@@ -101,57 +100,12 @@ getRunners seededRunners =
             []
 
 
-expectFailureHelper :
-    ({ description : String
-     , given : Maybe String
-     , reason : Reason
-     }
-     -> Result String ()
-    )
-    -> Test
-    -> Test
-expectFailureHelper f test =
-    let
-        seed =
-            Random.initialSeed 99
-    in
-    test
-        |> Test.Runner.fromTest 100 seed
-        |> getRunners
-        |> List.concatMap (.run >> (\run -> run ()))
-        |> List.map (passToFail f)
-        |> List.map (\result -> \() -> result)
-        |> List.indexedMap (\i t -> Test.test (String.fromInt i) t)
-        |> Test.describe "testSimplifying"
-
-
-testSimplifying : Test -> Test
-testSimplifying =
-    let
-        handleFailure { given, description } =
-            let
-                acceptable =
-                    String.split "|" description
-            in
-            case given of
-                Nothing ->
-                    Err "Expected this test to have a given value!"
-
-                Just g ->
-                    if List.member g acceptable then
-                        Ok ()
-
-                    else
-                        Err <| "Got simplified value " ++ g ++ " but expected " ++ String.join " or " acceptable
-    in
-    expectFailureHelper handleFailure
-
-
 {-| get a good distribution of random seeds, and don't simplify our seeds!
 -}
 randomSeedFuzzer : Fuzzer Random.Seed
 randomSeedFuzzer =
-    Fuzz.custom (Random.int 0 0xFFFFFFFF) Simplify.simplest |> Fuzz.map Random.initialSeed
+    Fuzz.intRange 0 0xFFFFFFFF
+        |> Fuzz.map Random.initialSeed
 
 
 same : Expectation -> Expectation -> Expectation

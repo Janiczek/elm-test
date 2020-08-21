@@ -7,6 +7,7 @@ module MicroBitwiseExtra exposing
     )
 
 import Bitwise
+import Elm.Kernel.BitwiseExtra
 
 
 isBitSet : Int -> Int -> Bool

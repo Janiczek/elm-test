@@ -97,7 +97,7 @@ append n run =
 
 isInBounds : Chunk -> RandomRun -> Bool
 isInBounds { startIndex, size } run =
-    startIndex + size <= length run
+    startIndex + size <= run.length
 
 
 length : RandomRun -> Int
@@ -238,7 +238,7 @@ set index value run =
 
 sortKey : RandomRun -> ( Int, List Int )
 sortKey run =
-    ( length run
+    ( run.length
     , toList run
     )
 

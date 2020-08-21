@@ -24,7 +24,9 @@ import Queue exposing (Queue)
 
 
 type alias RandomRun =
-    Queue Int
+    { length : Int
+    , data : Queue Int
+    }
 
 
 {-| A cap for the maximum amount of entropy a fuzzer can use.
@@ -48,7 +50,7 @@ maxLength =
 
 isOverCapacity : RandomRun -> Bool
 isOverCapacity run =
-    length run >= maxLength
+    run.length >= maxLength
 
 
 type alias Chunk =
@@ -59,27 +61,38 @@ type alias Chunk =
 
 empty : RandomRun
 empty =
-    Queue.empty
+    { length = 0
+    , data = Queue.empty
+    }
 
 
 isEmpty : RandomRun -> Bool
 isEmpty run =
-    Queue.isEmpty run
+    run.length == 0
 
 
 nextChoice : RandomRun -> Maybe ( Int, RandomRun )
 nextChoice run =
-    case Queue.dequeue run of
+    case Queue.dequeue run.data of
         ( Nothing, _ ) ->
             Nothing
 
         ( Just first, rest ) ->
-            Just ( first, rest )
+            Just
+                ( first
+                , { run
+                    | length = run.length - 1
+                    , data = rest
+                  }
+                )
 
 
 append : Int -> RandomRun -> RandomRun
 append n run =
-    Queue.enqueue n run
+    { run
+        | length = run.length + 1
+        , data = Queue.enqueue n run.data
+    }
 
 
 isInBounds : Chunk -> RandomRun -> Bool
@@ -89,12 +102,12 @@ isInBounds { startIndex, size } run =
 
 length : RandomRun -> Int
 length run =
-    Queue.size run
+    run.length
 
 
 getChunk : Chunk -> RandomRun -> List Int
 getChunk chunk run =
-    run
+    run.data
         |> Queue.toList
         |> List.drop chunk.startIndex
         |> List.take chunk.size
@@ -104,12 +117,16 @@ deleteChunk : Chunk -> RandomRun -> RandomRun
 deleteChunk chunk run =
     let
         list =
-            Queue.toList run
+            Queue.toList run.data
     in
-    (List.take chunk.startIndex list
-        ++ List.drop (chunk.startIndex + chunk.size) list
-    )
-        |> Queue.fromList
+    { run
+        | length = run.length - chunk.size
+        , data =
+            (List.take chunk.startIndex list
+                ++ List.drop (chunk.startIndex + chunk.size) list
+            )
+                |> Queue.fromList
+    }
 
 
 replaceChunkWithZero : Chunk -> RandomRun -> RandomRun
@@ -117,14 +134,17 @@ replaceChunkWithZero chunk run =
     -- TODO maybe `replace [...] run` would be faster?
     let
         list =
-            Queue.toList run
+            Queue.toList run.data
     in
-    List.fastConcat
-        [ List.take chunk.startIndex list
-        , List.repeat chunk.size 0
-        , List.drop (chunk.startIndex + chunk.size) list
-        ]
-        |> Queue.fromList
+    { run
+        | data =
+            List.fastConcat
+                [ List.take chunk.startIndex list
+                , List.repeat chunk.size 0
+                , List.drop (chunk.startIndex + chunk.size) list
+                ]
+                |> Queue.fromList
+    }
 
 
 sortChunk : Chunk -> RandomRun -> RandomRun
@@ -143,18 +163,21 @@ sortChunk chunk run =
 
 replace : List ( Int, Int ) -> RandomRun -> RandomRun
 replace values run =
-    replaceInList values (Queue.toList run)
+    replaceInList values run.length (Queue.toList run.data)
 
 
-replaceInList : List ( Int, Int ) -> List Int -> RandomRun
-replaceInList values list =
-    List.foldl
-        (\( index, newValue ) accList ->
-            List.setAt index newValue accList
-        )
-        list
-        values
-        |> Queue.fromList
+replaceInList : List ( Int, Int ) -> Int -> List Int -> RandomRun
+replaceInList values len list =
+    { length = len
+    , data =
+        List.foldl
+            (\( index, newValue ) accList ->
+                List.setAt index newValue accList
+            )
+            list
+            values
+            |> Queue.fromList
+    }
 
 
 swapIfOutOfOrder :
@@ -169,7 +192,7 @@ swapIfOutOfOrder :
 swapIfOutOfOrder { leftIndex, rightIndex } run =
     let
         list =
-            Queue.toList run
+            Queue.toList run.data
     in
     Maybe.map2
         (\left right ->
@@ -179,6 +202,7 @@ swapIfOutOfOrder { leftIndex, rightIndex } run =
                         [ ( leftIndex, right )
                         , ( rightIndex, left )
                         ]
+                        run.length
                         list
                 , newLeftValue = right
                 , newRightValue = left
@@ -196,17 +220,20 @@ swapIfOutOfOrder { leftIndex, rightIndex } run =
 
 get : Int -> RandomRun -> Maybe Int
 get index run =
-    run
+    run.data
         |> Queue.toList
         |> List.getAt index
 
 
 set : Int -> Int -> RandomRun -> RandomRun
 set index value run =
-    run
-        |> Queue.toList
-        |> List.setAt index value
-        |> Queue.fromList
+    { run
+        | data =
+            run.data
+                |> Queue.toList
+                |> List.setAt index value
+                |> Queue.fromList
+    }
 
 
 sortKey : RandomRun -> ( Int, List Int )
@@ -223,4 +250,4 @@ compare a b =
 
 toList : RandomRun -> List Int
 toList run =
-    Queue.toList run
+    Queue.toList run.data

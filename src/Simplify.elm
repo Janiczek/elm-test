@@ -19,26 +19,25 @@ type alias State a =
     }
 
 
-{-| TODO ~janiczek: should we return the RandomRun here too?
--}
-simplify : State a -> a
+simplify : State a -> ( a, RandomRun )
 simplify state =
+    -- TODO ~janiczek: perhaps we can just return `a` here
     if RandomRun.isEmpty state.randomRun then
         -- We can't do any better
-        state.value
+        ( state.value, state.randomRun )
 
     else
         simplifyWhileProgress state
 
 
-simplifyWhileProgress : State a -> a
+simplifyWhileProgress : State a -> ( a, RandomRun )
 simplifyWhileProgress state =
     let
         nextState =
             simplifyOnce state
     in
     if nextState.randomRun == state.randomRun then
-        nextState.value
+        ( nextState.value, nextState.randomRun )
 
     else
         simplifyWhileProgress nextState

@@ -140,8 +140,7 @@ testGeneratedValue state =
 findSimplestFailure : Simplify.State a -> Failure
 findSimplestFailure state =
     let
-        simplestValue : a
-        simplestValue =
+        ( simplestValue, _ ) =
             Simplify.simplify state
     in
     { given = Test.Internal.toString simplestValue

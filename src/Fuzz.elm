@@ -251,10 +251,13 @@ percentage =
 We can't use Random.Generators here as all fuzzed values must be representable as
 1+ ints. We generally use a pair of 32bit ints to represent a 64bit float.
 
+Here we know the top 12 bits of the high int wouldn't be used for the mantissa
+calculations so we don't bother generating those.
+
 -}
 percentageHelp : Fuzzer Float
 percentageHelp =
-    pair ( int32, int32 )
+    pair ( internalInt 0x000FFFFF, int32 )
         |> map Fuzz.Float.fractionalFloat
 
 
@@ -272,7 +275,7 @@ char =
         |> map Char.fromCode
 
 
-{-| Generates random printable unicode strings of up to 1000 characters.
+{-| Generates random printable unicode strings of up to 100 characters.
 
 Shorter strings are more common, especially the empty string.
 
@@ -283,7 +286,7 @@ string =
         [ ( 0.2, constant "" )
         , ( 3, stringOfLengthBetween 1 10 )
         , ( 1, stringOfLengthBetween 11 50 )
-        , ( 1, stringOfLengthBetween 50 1000 )
+        , ( 1, stringOfLengthBetween 50 100 )
         ]
 
 

@@ -507,3 +507,4 @@ simplify getExpectation ( value, Simplifiable { randomRun, fuzzer } ) =
         , randomRun = randomRun
         , value = value
         }
+        |> Tuple.first

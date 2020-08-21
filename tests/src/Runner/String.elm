@@ -47,8 +47,7 @@ toOutput summary seededRunners =
 
 toOutputHelp : Runner -> Summary -> Summary
 toOutputHelp runner summary =
-    runner.run ()
-        |> List.foldl (fromExpectation runner.labels) summary
+    fromExpectation runner.labels (runner.run ()) summary
 
 
 fromExpectation : List String -> Expectation -> Summary -> Summary

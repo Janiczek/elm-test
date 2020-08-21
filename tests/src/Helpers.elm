@@ -1,4 +1,4 @@
-module Helpers exposing (different, expectPass, expectTestToFail, expectToFail, randomSeedFuzzer, same, succeeded, testStringLengthIsPreserved)
+module Helpers exposing (different, expectPass, expectTestToFail, expectToFail, randomSeedFuzzer, same, succeeded, testSimplifying, testStringLengthIsPreserved)
 
 import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer)
@@ -6,6 +6,52 @@ import Random
 import Test exposing (Test)
 import Test.Runner exposing (Runner, SeededRunners)
 import Test.Runner.Failure exposing (Reason(..))
+
+
+expectFailureHelper :
+    ({ description : String
+     , given : Maybe String
+     , reason : Reason
+     }
+     -> Result String ()
+    )
+    -> Test
+    -> Test
+expectFailureHelper f test =
+    let
+        seed =
+            Random.initialSeed 99
+    in
+    test
+        |> Test.Runner.fromTest 100 seed
+        |> getRunners
+        |> List.map (.run >> (\run -> run ()))
+        |> List.map (passToFail f)
+        |> List.map (\result -> \() -> result)
+        |> List.indexedMap (\i t -> Test.test (String.fromInt i) t)
+        |> Test.describe "testSimplifying"
+
+
+testSimplifying : Test -> Test
+testSimplifying =
+    let
+        handleFailure { given, description } =
+            let
+                acceptable =
+                    String.split "|" description
+            in
+            case given of
+                Nothing ->
+                    Err "Expected this test to have a given value!"
+
+                Just g ->
+                    if List.member g acceptable then
+                        Ok ()
+
+                    else
+                        Err <| "Got simplified value " ++ g ++ " but expected " ++ String.join " or " acceptable
+    in
+    expectFailureHelper handleFailure
 
 
 expectPass : a -> Expectation
@@ -40,7 +86,7 @@ expectTestToFail test =
     test
         |> Test.Runner.fromTest 100 seed
         |> getRunners
-        |> List.concatMap (.run >> (\run -> run ()))
+        |> List.map (.run >> (\run -> run ()))
         |> List.map expectToFail
         |> List.map always
         |> Expect.all

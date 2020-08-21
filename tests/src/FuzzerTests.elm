@@ -1,6 +1,6 @@
 module FuzzerTests exposing (fuzzerTests)
 
-import Expect
+import Expect exposing (Expectation)
 import Fuzz exposing (..)
 import Helpers exposing (..)
 import Random
@@ -90,6 +90,7 @@ type alias SimplifyResult a =
 initialSimplifyResult : Fuzzer a -> Random.Seed -> SimplifyResult a
 initialSimplifyResult fuzzer seed =
     Random.step (Test.Runner.fuzz fuzzer) seed
+        |> Tuple.first
         |> Result.toMaybe
 
 
@@ -127,14 +128,18 @@ manualFuzzerTests =
                         initialSimplifyResult fuzzer seed
 
                     finalValue =
-                        Test.Runner.simplify (failsTest >> toExpectation) pair
+                        pair
+                            |> Maybe.map (Test.Runner.simplify (toExpectation failsTest))
                 in
                 finalValue
-                    |> Expect.all
-                        [ failsTest >> Expect.equal True >> Expect.onFail "Wasn't even"
-                        , Expect.lessThan 5
-                        , Expect.atLeast 0
-                        ]
+                    |> Maybe.map
+                        (Expect.all
+                            [ failsTest >> Expect.equal True >> Expect.onFail "Wasn't even"
+                            , Expect.lessThan 5
+                            , Expect.atLeast 0
+                            ]
+                        )
+                    |> Maybe.withDefault (Expect.fail "no final value")
         , fuzz randomSeedFuzzer "No strings contain the letter e" <|
             \seed ->
                 let
@@ -149,13 +154,17 @@ manualFuzzerTests =
                         initialSimplifyResult fuzzer seed
 
                     finalValue =
-                        Test.Runner.simplify (failsTest >> toExpectation) pair
+                        pair
+                            |> Maybe.map (Test.Runner.simplify (toExpectation failsTest))
                 in
                 finalValue
-                    |> Expect.all
-                        [ failsTest >> Expect.equal True >> Expect.onFail "Didn't contain the letter e"
-                        , Expect.equal "e"
-                        ]
+                    |> Maybe.map
+                        (Expect.all
+                            [ failsTest >> Expect.equal True >> Expect.onFail "Didn't contain the letter e"
+                            , Expect.equal "e"
+                            ]
+                        )
+                    |> Maybe.withDefault (Expect.fail "no final value")
         ]
 
 

@@ -11,3 +11,4 @@ var _Float_fromBytes = F2(function(hi,lo)
     view.setInt32(1, lo);
     return view.getFloat64(0);
 });
+

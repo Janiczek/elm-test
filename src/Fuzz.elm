@@ -140,7 +140,10 @@ intRange lo hi =
 
 intRangeHelp : Int -> Int -> Fuzzer Int
 intRangeHelp lo hi =
-    if lo >= 0 then
+    if lo == hi then
+        constant lo
+
+    else if lo >= 0 then
         -- both non-negative
         internalInt (hi - lo)
             {- intRange 2 5: internalInt 3: 0,1,2,3
@@ -170,29 +173,35 @@ intRangeHelp lo hi =
 
 
 {-| A fuzzer for float values. It will never produce `NaN`, `Infinity`, or `-Infinity`.
-
-It's possible for this fuzzer to generate any other floating-point value, but it
-favors numbers between -50 and 50, numbers between -1 and 1, and especially zero.
-
-TODO ~janiczek: that ^ isn't true about the current Fuzz.float. It never
-generates floats outside of the 32bit int range, like, let's say, 17179869184.
-We should probably fix that?
-
 -}
 float : Fuzzer Float
 float =
-    frequency
-        [ ( 0.5, constant 0 )
-        , ( 1, floatRange -1 1 )
-        , ( 3, floatRange -50 50 )
-        , ( 1, floatRange 0 (toFloat 0xFFFFFFFF) )
-        , ( 1, floatRange (toFloat (negate 0xFFFFFFFF)) 0 )
-        ]
+    map3
+        (\hi lo shouldNegate ->
+            let
+                f : Float
+                f =
+                    Fuzz.Float.wellShrinkingFloat ( hi, lo )
+            in
+            if shouldNegate then
+                negate f
+
+            else
+                f
+        )
+        int32
+        int32
+        bool
 
 
 {-| A fuzzer for float values within between a given minimum and maximum
 value, inclusive. Values at the boundary will be tested often. Shrunken
 values will also be within the range.
+
+TODO ~janiczek: these (m,n) range `floatRange`s will not shrink as nicely as
+a (-Inf,Inf) `float` would. But we could make (-Inf,n) and (n,Inf) ones shrink
+nicely. What about exposing functions for them?
+
 -}
 floatRange : Float -> Float -> Fuzzer Float
 floatRange lo hi =
@@ -204,17 +213,23 @@ floatRange lo hi =
                 ++ String.fromFloat hi
                 ++ "."
 
+    else if lo == hi then
+        constant lo
+
     else
         frequency
             [ ( 1, constant lo )
             , ( 1, constant hi )
-            , ( 8, floatRangeHelp lo hi )
+            , ( 8, scaledFloat lo hi )
             ]
 
 
-floatRangeHelp : Float -> Float -> Fuzzer Float
-floatRangeHelp lo hi =
-    Debug.todo "floatRangeHelp"
+{-| TODO ~janiczek: This won't shrink nicely? Can we make it do so?
+-}
+scaledFloat : Float -> Float -> Fuzzer Float
+scaledFloat lo hi =
+    percentage
+        |> map (\f -> f * (hi - lo) + lo)
 
 
 {-| A fuzzer for percentage values. Generates random floats between `0.0` and

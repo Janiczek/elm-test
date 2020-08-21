@@ -44,6 +44,7 @@ import GenResult exposing (GenResult(..))
 import PRNG exposing (PRNG)
 import Random
 import RandomRun exposing (RandomRun)
+import Simplify
 import String
 import Test exposing (Test)
 import Test.Expectation
@@ -493,20 +494,16 @@ fuzz fuzzer =
             )
 
 
-{-| Given a Simplifiable, attempt to simplify the value further. Pass `False` to
-indicate that the last value you've seen (from either `fuzz` or this function)
-caused the test to **fail**. This will attempt to find a simpler value. Pass
-`True` if the test passed. If you have already seen a failure, this will attempt
-to simplify that failure in another way. In both cases, it may be impossible to
-simplify the value, represented by `Nothing`.
-
-TODO ~janiczek: why is this needed? Why let the user simplify across many steps
-instead of all at once? Like this:
-
-    simplify : (a -> Bool) -> Simplifiable a -> Maybe ( a, Simplifiable a )
-    simplify : (a -> Expectation) -> Simplifiable a -> Maybe ( a, Simplifiable a )
-
+{-| Given a Simplifiable, simplify the value further. Pass your test function to
+drive the simplification process: if a simplified value passes the test, it will
+be discarded. In this sense, you will get the simplest value that still fails
+your test.
 -}
-simplify : Bool -> Simplifiable a -> Maybe ( a, Simplifiable a )
-simplify causedPass (Simplifiable { randomRun, fuzzer }) =
-    Debug.todo "Test.Runner.simplify"
+simplify : (a -> Expectation) -> ( a, Simplifiable a ) -> a
+simplify getExpectation ( value, Simplifiable { randomRun, fuzzer } ) =
+    Simplify.simplify
+        { getExpectation = getExpectation
+        , fuzzer = fuzzer
+        , randomRun = randomRun
+        , value = value
+        }

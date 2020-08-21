@@ -44,7 +44,6 @@ Instead of using a tuple, consider using [`fuzz2`][fuzz2] or [`fuzz3`][fuzz3].
 
 import Array exposing (Array)
 import Char
-import Elm.Kernel.Debug
 import Fuzz.Float
 import Fuzz.Internal exposing (Fuzzer(..))
 import GenResult exposing (GenResult(..))

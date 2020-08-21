@@ -681,7 +681,7 @@ frequency fuzzers =
             invalid "Frequency weights must sum to more than 0."
 
         else
-            percentage
+            percentageHelp
                 |> andThen
                     (\p ->
                         let

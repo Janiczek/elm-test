@@ -96,23 +96,16 @@ order =
 {-| A fuzzer for int values. It will never produce `NaN`, `Infinity`, or
 `-Infinity`.
 
-It's possible for this fuzzer to generate any 32-bit integer, signed or unsigned,
-but it favors numbers between -50 and 50 and especially zero.
+It's possible for this fuzzer to generate any 32-bit integer, signed or unsigned.
 
 -}
 int : Fuzzer Int
 int =
-    smallFrequency
-        [ ( 1, constant 0 )
-        , ( 10, intRange -50 50 )
-        , ( 4, intRange 0 0xFFFFFFFF )
-        , ( 4, intRange (negate 0xFFFFFFFF) 0 )
-        ]
+    intRange (negate 0xFFFFFFFF) 0xFFFFFFFF
 
 
 {-| A fuzzer for int values between a given minimum and maximum value,
-inclusive. The high and low boundaries will be tested often. Shrunken
-values will also be within the range.
+inclusive. Shrunken values will also be within the range.
 
 Remember that [Random.maxInt](http://package.elm-lang.org/packages/elm-lang/core/latest/Random#maxInt)
 is the maximum possible int value, so you can do `intRange x Random.maxInt` to get all
@@ -129,17 +122,7 @@ intRange lo hi =
                 ++ String.fromInt hi
                 ++ "."
 
-    else
-        smallFrequency
-            [ ( 8, intRangeHelp lo hi )
-            , ( 1, constant lo )
-            , ( 1, constant hi )
-            ]
-
-
-intRangeHelp : Int -> Int -> Fuzzer Int
-intRangeHelp lo hi =
-    if lo == hi then
+    else if lo == hi then
         constant lo
 
     else if lo >= 0 then
@@ -166,8 +149,8 @@ intRangeHelp lo hi =
            both of which will simplify towards zero. We prefer positive values.
         -}
         oneOf
-            [ intRangeHelp 0 hi -- the conditions above guarantee hi >= 1
-            , intRangeHelp lo -1 -- the conditions above guarantee lo <= -1
+            [ intRange 0 hi -- the conditions above guarantee hi >= 1
+            , intRange lo -1 -- the conditions above guarantee lo <= -1
             ]
 
 
@@ -194,8 +177,7 @@ float =
 
 
 {-| A fuzzer for float values within between a given minimum and maximum
-value, inclusive. Values at the boundary will be tested often. Shrunken
-values will also be within the range.
+value, inclusive. Shrunken values will also be within the range.
 
 TODO ~janiczek: these (m,n) range `floatRange`s will not shrink as nicely as
 a (-Inf,Inf) `float` would. But we could make (-Inf,n) and (n,Inf) ones shrink
@@ -216,11 +198,7 @@ floatRange lo hi =
         constant lo
 
     else
-        smallFrequency
-            [ ( 8, scaledFloat lo hi )
-            , ( 1, constant lo )
-            , ( 1, constant hi )
-            ]
+        scaledFloat lo hi
 
 
 {-| TODO ~janiczek: This won't shrink nicely? Can we make it do so?
@@ -232,31 +210,20 @@ scaledFloat lo hi =
 
 
 {-| A fuzzer for percentage values. Generates random floats between `0.0` and
-`1.0`. It will test zero and one about 10% of the time each.
+`1.0`.
 
 Simplifies towards zero.
 
 -}
 percentage : Fuzzer Float
 percentage =
-    smallFrequency
-        [ ( 1, constant 0 )
-        , ( 1, constant 1 )
-        , ( 8, percentageHelp )
-        ]
+    {- We can't use Random.Generators here as all fuzzed values must be
+       representable as one or more ints. We generally use a pair of 32bit ints
+       to represent a 64bit float.
 
-
-{-| Simplifies towards 0.
-
-We can't use Random.Generators here as all fuzzed values must be representable as
-1+ ints. We generally use a pair of 32bit ints to represent a 64bit float.
-
-Here we know the top 12 bits of the high int wouldn't be used for the mantissa
-calculations so we don't bother generating those.
-
--}
-percentageHelp : Fuzzer Float
-percentageHelp =
+       Here we know the top 12 bits of the high int wouldn't be used for the
+       mantissa calculations so we don't bother generating those.
+    -}
     pair ( internalInt 0x000FFFFF, int32 )
         |> map Fuzz.Float.fractionalFloat
 
@@ -276,18 +243,10 @@ char =
 
 
 {-| Generates random printable unicode strings of up to 100 characters.
-
-Shorter strings are more common, especially the empty string.
-
 -}
 string : Fuzzer String
 string =
-    smallFrequency
-        [ ( 1, constant "" )
-        , ( 10, stringOfLengthBetween 1 10 )
-        , ( 4, stringOfLengthBetween 11 50 )
-        , ( 4, stringOfLengthBetween 50 100 )
-        ]
+    stringOfLengthBetween 0 100
 
 
 stringOfLengthBetween : Int -> Int -> Fuzzer String
@@ -296,8 +255,6 @@ stringOfLengthBetween min max =
         |> map String.fromList
 
 
-{-| TODO ~janiczek: what about exposing this?
--}
 unicodeChar : Fuzzer Char
 unicodeChar =
     let
@@ -325,7 +282,7 @@ unicodeChar =
                 , '🔥'
                 ]
     in
-    smallFrequency
+    smallIntFrequency
         [ ( 4, char )
         , ( 1, whitespaceChar )
         , ( 1, combiningDiacriticalMarkChar )
@@ -337,7 +294,7 @@ unicodeChar =
 -}
 maybe : Fuzzer a -> Fuzzer (Maybe a)
 maybe fuzzer =
-    smallFrequency
+    smallIntFrequency
         [ ( 1, constant Nothing )
         , ( 3, map Just fuzzer )
         ]
@@ -348,24 +305,18 @@ a result.
 -}
 result : Fuzzer error -> Fuzzer value -> Fuzzer (Result error value)
 result fuzzerError fuzzerValue =
-    smallFrequency
+    smallIntFrequency
         [ ( 1, map Err fuzzerError )
         , ( 3, map Ok fuzzerValue )
         ]
 
 
 {-| Given a fuzzer of a type, create a fuzzer of a list of that type.
-Generates random lists of varying length, favoring shorter lists.
+Generates random lists of varying length, up to 100 elements.
 -}
 list : Fuzzer a -> Fuzzer (List a)
 list fuzzer =
-    smallFrequency
-        [ ( 4, constant [] )
-        , ( 5, map List.singleton fuzzer )
-        , ( 8, listOfLengthBetween 2 10 fuzzer )
-        , ( 2, listOfLengthBetween 10 100 fuzzer )
-        , ( 1, listOfLengthBetween 100 400 fuzzer )
-        ]
+    listOfLengthBetween 0 100 fuzzer
 
 
 {-| TODO docs
@@ -695,10 +646,10 @@ frequency fuzzers =
                 && weightSum
                 < 20
         then
-            smallFrequency (List.map (Tuple.mapFirst round) fuzzers)
+            smallIntFrequency (List.map (Tuple.mapFirst round) fuzzers)
 
         else
-            percentageHelp
+            percentage
                 |> andThen
                     (\p ->
                         let
@@ -739,8 +690,8 @@ Note that the performance might hurt if used with eg. `(1000, fooFuzzer)`.
 In that case it will be better to use `frequency`.
 
 -}
-smallFrequency : List ( Int, Fuzzer a ) -> Fuzzer a
-smallFrequency fuzzers =
+smallIntFrequency : List ( Int, Fuzzer a ) -> Fuzzer a
+smallIntFrequency fuzzers =
     fuzzers
         |> List.fastConcatMap (\( count, fuzzer ) -> List.repeat count fuzzer)
         |> oneOf

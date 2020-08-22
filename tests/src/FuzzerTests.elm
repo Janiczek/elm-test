@@ -44,42 +44,20 @@ fuzzerTests =
 
 simplifyingTests : Test
 simplifyingTests =
-    let
-        -- To test simplifying, we have to fail some tests so we can simplify their inputs.
-        -- The best place we found for storing the expected last state(s) of the simplifying procedure is the description field, which is why we have this function here.
-        -- Previously, we (ab)used Expect.true for this, but since that was removed, here we are.
-        expectTrueAndExpectSimplifyResultToEqualString label a =
-            Expect.equal True a |> Expect.onFail label
-    in
     testSimplifying <|
         describe "tests that fail intentionally to test simplifying"
             [ fuzz2 int int "Every pair of ints has a zero" <|
                 \i j ->
-                    (i == 0)
-                        || (j == 0)
-                        |> expectTrueAndExpectSimplifyResultToEqualString "(1,1)"
+                    ((i == 0) || (j == 0))
+                        |> expectSimplifiesTo "(1,1)"
             , fuzz3 int int int "Every triple of ints has a zero" <|
                 \i j k ->
-                    (i == 0)
-                        || (j == 0)
-                        || (k == 0)
-                        |> expectTrueAndExpectSimplifyResultToEqualString "(1,1,1)"
+                    ((i == 0) || (j == 0) || (k == 0))
+                        |> expectSimplifiesTo "(1,1,1)"
             , fuzz (list int) "All lists are sorted" <|
                 \aList ->
-                    let
-                        checkPair l =
-                            case l of
-                                a :: b :: more ->
-                                    if a > b then
-                                        False
-
-                                    else
-                                        checkPair (b :: more)
-
-                                _ ->
-                                    True
-                    in
-                    checkPair aList |> expectTrueAndExpectSimplifyResultToEqualString "[1,0]|[0,-1]"
+                    (aList == List.sort aList)
+                        |> expectSimplifiesTo "[1,0]|[0,-1]"
             ]
 
 

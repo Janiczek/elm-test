@@ -1,4 +1,4 @@
-module MicroListExtra exposing (fastConcat, getAt, setAt)
+module MicroListExtra exposing (fastConcat, fastConcatMap, getAt, setAt)
 
 
 getAt : Int -> List a -> Maybe a
@@ -18,3 +18,8 @@ setAt index value list =
 fastConcat : List (List a) -> List a
 fastConcat =
     List.foldr (++) []
+
+
+fastConcatMap : (a -> List b) -> List a -> List b
+fastConcatMap f =
+    List.foldr (f >> (++)) []

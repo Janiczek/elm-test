@@ -47,6 +47,10 @@ toOutput summary seededRunners =
 
 toOutputHelp : Runner -> Summary -> Summary
 toOutputHelp runner summary =
+    let
+        _ =
+            Debug.log "[RUNNER.STRING] --------------------------------------" (List.head runner.labels |> Maybe.withDefault "")
+    in
     fromExpectation runner.labels (runner.run ()) summary
 
 

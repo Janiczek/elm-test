@@ -1,6 +1,6 @@
 module Tests exposing (all)
 
-import Expect exposing (FloatingPointTolerance(..))
+import Expect exposing (Expectation, FloatingPointTolerance(..))
 import FloatWithinTests exposing (floatWithinTests)
 import Fuzz exposing (..)
 import FuzzerTests exposing (fuzzerTests)
@@ -19,16 +19,176 @@ import Test.Runner
 
 all : Test
 all =
-    Test.concat
-        [ readmeExample
-        , regressions
-        , testTests
-        , expectationTests
-        , fuzzerTests
-        , floatWithinTests
-        , RunnerTests.all
-        , elmHtmlTests
+    {-
+       Test.concat
+           [ readmeExample
+           , regressions
+           , testTests
+           , expectationTests
+           , fuzzerTests
+           , floatWithinTests
+           , RunnerTests.all
+           , elmHtmlTests
+           ]
+    -}
+    janiczekTests
+
+
+
+-- TODO float, floatRange, string, list, array
+-- TODO oneOf, oneOfValues, map2, map3, map4, map5, andMap,
+-- TODO frequency, frequencyValues, andThen, lazy, filter
+-- TODO pair, triple
+-- TODO char, order, invalid, weightedBool
+
+
+janiczekTests : Test
+janiczekTests =
+    Test.describe "TODO categorize these tests"
+        [ describe "bool"
+            [ canGenerate False Fuzz.bool
+            , canGenerate True Fuzz.bool
+            , simplifiesTowards "simplest" False simplest Fuzz.bool
+            , simplifiesTowards "non-False" True (\v -> v == False) Fuzz.bool
+            ]
+        , describe "unit"
+            [ canGenerate () Fuzz.unit
+            , simplifiesTowards "()" () simplest Fuzz.unit
+            ]
+        , describe "constant"
+            [ passes "Returns what you give it - Int"
+                (Fuzz.constant 42)
+                (\v -> v == 42)
+            , passes "Returns what you give it - different Int"
+                (Fuzz.constant 999)
+                (\v -> v == 999)
+            , passes "Returns what you give it - Bool"
+                (Fuzz.constant True)
+                (\v -> v == True)
+            , simplifiesTowards "42" 42 simplest (Fuzz.constant 42)
+            ]
+        , describe "maybe"
+            [ canGenerateSatisfying "Just" (Fuzz.maybe Fuzz.unit) ((/=) Nothing)
+            , canGenerateSatisfying "Nothing" (Fuzz.maybe Fuzz.unit) ((==) Nothing)
+            ]
+        , describe "result"
+            [ canGenerateSatisfying "Ok"
+                (Fuzz.result Fuzz.unit Fuzz.unit)
+                (Result.toMaybe >> (/=) Nothing)
+            , canGenerateSatisfying "Err"
+                (Fuzz.result Fuzz.unit Fuzz.unit)
+                (Result.toMaybe >> (==) Nothing)
+            ]
+        , describe "map"
+            [ passes "Any number * 2 = even number"
+                (Fuzz.intRange 0 5
+                    |> Fuzz.map (\n -> n * 2)
+                )
+                (\n -> modBy 2 n == 0)
+            ]
+        , describe "intRange"
+            [ passes "Full range"
+                (Fuzz.intRange (negate 0xFFFFFFFF) 0xFFFFFFFF)
+                (\n -> n >= negate 0xFFFFFFFF && n <= 0xFFFFFFFF)
+            , passes "Smaller range"
+                (Fuzz.intRange -5 5)
+                (\n -> n >= -5 && n <= 5)
+            , canGenerate (negate 0xFFFFFFFF)
+                (Fuzz.intRange (negate 0xFFFFFFFF) 0xFFFFFFFF)
+            , canGenerate 0xFFFFFFFF
+                (Fuzz.intRange (negate 0xFFFFFFFF) 0xFFFFFFFF)
+
+            -- TODO: rejects "Limits out of order (hi < lo)"
+            ]
+        , describe "int"
+            [ passes "Full range"
+                Fuzz.int
+                (\n -> n >= negate 0xFFFFFFFF && n <= 0xFFFFFFFF)
+            , canGenerate (negate 0xFFFFFFFF) Fuzz.int
+            , -- TODO ~janiczek: the probabilities are too low for my liking -
+              -- this test fails way too often
+              canGenerate 0xFFFFFFFF Fuzz.int
+            , cannotGenerateSatisfying "any Infinity"
+                Fuzz.int
+                (isInfinite << toFloat)
+            , cannotGenerateSatisfying "NaN"
+                Fuzz.int
+                (isNaN << toFloat)
+            ]
+        , describe "percentage"
+            [ passes "Range 0..1"
+                Fuzz.percentage
+                (\p -> p >= 0 && p <= 1)
+            , cannotGenerateSatisfying "any Infinity" Fuzz.percentage isInfinite
+            , cannotGenerateSatisfying "NaN" Fuzz.percentage isNaN
+            , simplifiesTowards "simplest" 0 simplest Fuzz.percentage
+            , simplifiesTowards "non-zero" 1 (\v -> v == 0) Fuzz.percentage
+            , simplifiesTowards "non-zero non-one"
+                0.25
+                (\v -> v == 1 || v < 0.25)
+                Fuzz.percentage
+            ]
         ]
+
+
+{-| An user test function that makes the simplifier simplify the value fully.
+-}
+simplest : a -> Bool
+simplest _ =
+    False
+
+
+passes : String -> Fuzzer a -> (a -> Bool) -> Test
+passes label fuzzer fn =
+    fuzz fuzzer label (fn >> Expect.equal True)
+
+
+canGenerateSatisfying : String -> Fuzzer a -> (a -> Bool) -> Test
+canGenerateSatisfying label fuzzer fn =
+    testFailing <|
+        fuzz fuzzer
+            ("Can generate satisfying: " ++ label)
+            (\fuzzedValue ->
+                (not <| fn fuzzedValue)
+                    |> Expect.equal True
+            )
+
+
+cannotGenerateSatisfying : String -> Fuzzer a -> (a -> Bool) -> Test
+cannotGenerateSatisfying label fuzzer fn =
+    passes ("Cannot generate satisfying: " ++ label)
+        fuzzer
+        (not << fn)
+
+
+canGenerate : a -> Fuzzer a -> Test
+canGenerate value fuzzer =
+    let
+        valueString =
+            Debug.toString value
+    in
+    testSimplifying_ <|
+        fuzz fuzzer
+            ("Can generate " ++ valueString)
+            (\fuzzedValue ->
+                (fuzzedValue /= value)
+                    |> expectSimplifiesTo valueString
+            )
+
+
+simplifiesTowards : String -> a -> (a -> Bool) -> Fuzzer a -> Test
+simplifiesTowards label value fn fuzzer =
+    let
+        valueString =
+            Debug.toString value
+    in
+    testSimplifying_ <|
+        fuzz fuzzer
+            ("[" ++ label ++ "] Simplifies towards " ++ valueString)
+            (\fuzzedValue ->
+                fn fuzzedValue
+                    |> expectSimplifiesTo valueString
+            )
 
 
 elmHtmlTests : Test

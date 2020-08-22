@@ -1,4 +1,4 @@
-module Helpers exposing (different, expectPass, expectTestToFail, expectToFail, randomSeedFuzzer, same, succeeded, testSimplifying, testStringLengthIsPreserved)
+module Helpers exposing (different, expectPass, expectSimplifiesTo, expectTestToFail, expectToFail, randomSeedFuzzer, same, succeeded, testFailing, testSimplifying, testSimplifying_, testStringLengthIsPreserved)
 
 import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer)
@@ -8,32 +8,87 @@ import Test.Runner exposing (Runner, SeededRunners)
 import Test.Runner.Failure exposing (Reason(..))
 
 
-expectFailureHelper :
-    ({ description : String
-     , given : Maybe String
-     , reason : Reason
-     }
-     -> Result String ()
-    )
-    -> Test
-    -> Test
-expectFailureHelper f test =
+{-| To test simplifying, we have to fail some tests so we can simplify their inputs.
+The best place we found for storing the expected last state(s) of the simplifying procedure is the description field, which is why we have this function here.
+Previously, we (ab)used Expect.true for this, but since that was removed, here we are.
+-}
+expectSimplifiesTo : String -> Bool -> Expectation
+expectSimplifiesTo label a =
+    Expect.equal True a |> Expect.onFail label
+
+
+testSimplifying_ : Test -> Test
+testSimplifying_ test =
     let
+        handleFailure { given, description } =
+            case given of
+                Nothing ->
+                    Err "Expected this test to have a given value!"
+
+                Just g ->
+                    if g == description then
+                        Ok ()
+
+                    else
+                        Err <| "Got simplified value " ++ g ++ " but expected " ++ description
+
         seed =
             Random.initialSeed 99
     in
     test
         |> Test.Runner.fromTest 100 seed
         |> getRunners
-        |> List.map (.run >> (\run -> run ()))
-        |> List.map (passToFail f)
-        |> List.map (\result -> \() -> result)
-        |> List.indexedMap (\i t -> Test.test (String.fromInt i) t)
-        |> Test.describe "testSimplifying"
+        |> List.head
+        |> Maybe.map
+            (\runner ->
+                Test.test
+                    (List.head runner.labels
+                        |> Maybe.withDefault "Failed"
+                    )
+                <|
+                    \() ->
+                        runner.run
+                            |> (\run -> run ())
+                            |> passToFail handleFailure
+            )
+        |> Maybe.withDefault (Test.test "Failed" <| \() -> Expect.fail "Failed")
+
+
+testFailing : Test -> Test
+testFailing test =
+    let
+        handleFailure { given, description } =
+            case given of
+                Nothing ->
+                    Err "Expected this test to have a given value!"
+
+                Just g ->
+                    Ok ()
+
+        seed =
+            Random.initialSeed 99
+    in
+    test
+        |> Test.Runner.fromTest 100 seed
+        |> getRunners
+        |> List.head
+        |> Maybe.map
+            (\runner ->
+                Test.test
+                    (List.head runner.labels
+                        |> Maybe.withDefault "Failed"
+                    )
+                <|
+                    \() ->
+                        runner.run
+                            |> (\run -> run ())
+                            |> passToFail handleFailure
+            )
+        |> Maybe.withDefault (Test.test "Failed" <| \() -> Expect.fail "Failed")
 
 
 testSimplifying : Test -> Test
-testSimplifying =
+testSimplifying test =
     let
         handleFailure { given, description } =
             let
@@ -50,8 +105,18 @@ testSimplifying =
 
                     else
                         Err <| "Got simplified value " ++ g ++ " but expected " ++ String.join " or " acceptable
+
+        seed =
+            Random.initialSeed 99
     in
-    expectFailureHelper handleFailure
+    test
+        |> Test.Runner.fromTest 100 seed
+        |> getRunners
+        |> List.map (.run >> (\run -> run ()))
+        |> List.map (passToFail handleFailure)
+        |> List.map (\result -> \() -> result)
+        |> List.indexedMap (\i t -> Test.test (String.fromInt i) t)
+        |> Test.describe "testSimplifying"
 
 
 expectPass : a -> Expectation

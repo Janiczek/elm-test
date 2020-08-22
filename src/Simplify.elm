@@ -19,9 +19,10 @@ type alias State a =
     }
 
 
+{-| TODO ~janiczek: perhaps we can just return `a` here
+-}
 simplify : State a -> ( a, RandomRun )
 simplify state =
-    -- TODO ~janiczek: perhaps we can just return `a` here
     if RandomRun.isEmpty state.randomRun then
         -- We can't do any better
         ( state.value, state.randomRun )
@@ -32,6 +33,12 @@ simplify state =
 
 simplifyWhileProgress : State a -> ( a, RandomRun )
 simplifyWhileProgress state =
+    let
+        _ =
+            Debug.log
+                "[SIMPLIFY] simplifyWhileProgress"
+                ( RandomRun.toList state.randomRun, state.value )
+    in
     let
         nextState =
             simplifyOnce state

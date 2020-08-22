@@ -102,11 +102,11 @@ but it favors numbers between -50 and 50 and especially zero.
 -}
 int : Fuzzer Int
 int =
-    frequency
-        [ ( 0.2, constant 0 )
-        , ( 3, intRange -50 50 )
-        , ( 1, intRange 0 0xFFFFFFFF )
-        , ( 1, intRange (negate 0xFFFFFFFF) 0 )
+    smallFrequency
+        [ ( 1, constant 0 )
+        , ( 10, intRange -50 50 )
+        , ( 4, intRange 0 0xFFFFFFFF )
+        , ( 4, intRange (negate 0xFFFFFFFF) 0 )
         ]
 
 
@@ -130,7 +130,7 @@ intRange lo hi =
                 ++ "."
 
     else
-        frequency
+        smallFrequency
             [ ( 1, constant lo )
             , ( 1, constant hi )
             , ( 8, intRangeHelp lo hi )
@@ -216,7 +216,7 @@ floatRange lo hi =
         constant lo
 
     else
-        frequency
+        smallFrequency
             [ ( 1, constant lo )
             , ( 1, constant hi )
             , ( 8, scaledFloat lo hi )
@@ -239,7 +239,7 @@ Simplifies towards zero.
 -}
 percentage : Fuzzer Float
 percentage =
-    frequency
+    smallFrequency
         [ ( 1, constant 0 )
         , ( 1, constant 1 )
         , ( 8, percentageHelp )
@@ -282,11 +282,11 @@ Shorter strings are more common, especially the empty string.
 -}
 string : Fuzzer String
 string =
-    frequency
-        [ ( 0.2, constant "" )
-        , ( 3, stringOfLengthBetween 1 10 )
-        , ( 1, stringOfLengthBetween 11 50 )
-        , ( 1, stringOfLengthBetween 50 100 )
+    smallFrequency
+        [ ( 1, constant "" )
+        , ( 10, stringOfLengthBetween 1 10 )
+        , ( 4, stringOfLengthBetween 11 50 )
+        , ( 4, stringOfLengthBetween 50 100 )
         ]
 
 
@@ -325,7 +325,7 @@ unicodeChar =
                 , '🔥'
                 ]
     in
-    frequency
+    smallFrequency
         [ ( 4, char )
         , ( 1, whitespaceChar )
         , ( 1, combiningDiacriticalMarkChar )
@@ -337,7 +337,7 @@ unicodeChar =
 -}
 maybe : Fuzzer a -> Fuzzer (Maybe a)
 maybe fuzzer =
-    frequency
+    smallFrequency
         [ ( 1, constant Nothing )
         , ( 3, map Just fuzzer )
         ]
@@ -348,7 +348,7 @@ a result.
 -}
 result : Fuzzer error -> Fuzzer value -> Fuzzer (Result error value)
 result fuzzerError fuzzerValue =
-    frequency
+    smallFrequency
         [ ( 1, map Err fuzzerError )
         , ( 3, map Ok fuzzerValue )
         ]
@@ -359,12 +359,12 @@ Generates random lists of varying length, favoring shorter lists.
 -}
 list : Fuzzer a -> Fuzzer (List a)
 list fuzzer =
-    frequency
-        [ ( 1, constant [] )
-        , ( 1, map List.singleton fuzzer )
-        , ( 3, listOfLengthBetween 2 10 fuzzer )
+    smallFrequency
+        [ ( 4, constant [] )
+        , ( 5, map List.singleton fuzzer )
+        , ( 8, listOfLengthBetween 2 10 fuzzer )
         , ( 2, listOfLengthBetween 10 100 fuzzer )
-        , ( 0.5, listOfLengthBetween 100 400 fuzzer )
+        , ( 1, listOfLengthBetween 100 400 fuzzer )
         ]
 
 
@@ -683,6 +683,13 @@ frequency fuzzers =
         if weightSum == 0 then
             invalid "Frequency weights must sum to more than 0."
 
+        else if
+            List.all (\( w, _ ) -> w == toFloat (round w)) fuzzers
+                && weightSum
+                < 20
+        then
+            smallFrequency (List.map (Tuple.mapFirst round) fuzzers)
+
         else
             percentageHelp
                 |> andThen
@@ -710,6 +717,26 @@ frequency fuzzers =
                         in
                         go f fuzzers
                     )
+
+
+{-| A restricted version of `frequency` that has a nicer RandomRun footprint.
+
+`frequency` draws a `percentage` float = two 32bit integers.
+This function is implemented in terms of `oneOf` and so only draws one small
+integer (index into the list).
+
+`frequency` will automatically switch to this function if used with integers
+that sum to less than 20.
+
+Note that the performance might hurt if used with eg. `(1000, fooFuzzer)`.
+In that case it will be better to use `frequency`.
+
+-}
+smallFrequency : List ( Int, Fuzzer a ) -> Fuzzer a
+smallFrequency fuzzers =
+    fuzzers
+        |> List.fastConcatMap (\( count, fuzzer ) -> List.repeat count fuzzer)
+        |> oneOf
 
 
 {-| Create a `Fuzzer` by providing a list of probabilistic weights to use with

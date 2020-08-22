@@ -2,9 +2,8 @@ module Test.Fuzz exposing (fuzzTest)
 
 import Fuzz.Internal exposing (Fuzzer)
 import GenResult exposing (GenResult(..))
-import PRNG exposing (PRNG)
-import Random exposing (Generator)
-import RandomRun exposing (RandomRun)
+import PRNG
+import Random
 import Simplify
 import Test.Expectation exposing (Expectation(..))
 import Test.Internal exposing (Test(..), blankDescriptionFailure)

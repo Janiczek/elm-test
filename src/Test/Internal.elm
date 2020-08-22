@@ -1,7 +1,7 @@
 module Test.Internal exposing (Test(..), blankDescriptionFailure, duplicatedName, failNow, toString)
 
 import Elm.Kernel.Debug
-import Random exposing (Generator)
+import Random
 import Set exposing (Set)
 import Test.Expectation exposing (Expectation(..))
 import Test.Runner.Failure exposing (InvalidReason(..), Reason(..))

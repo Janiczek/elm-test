@@ -41,7 +41,7 @@ import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer)
 import Fuzz.Internal
 import GenResult exposing (GenResult(..))
-import PRNG exposing (PRNG)
+import PRNG
 import Random
 import RandomRun exposing (RandomRun)
 import Simplify
@@ -77,7 +77,6 @@ type alias Runner =
 type RunnableTree
     = Runnable Runnable
     | Labeled String RunnableTree
-    | Batch (List RunnableTree)
 
 
 {-| Convert a `Test` into `SeededRunners`.
@@ -130,9 +129,6 @@ countRunnables runnable =
         Labeled _ runner ->
             countRunnables runner
 
-        Batch runners ->
-            countAllRunnables runners
-
 
 run : Runnable -> Expectation
 run (Thunk fn) =
@@ -165,9 +161,6 @@ fromRunnableTreeHelp labels runner =
 
         Labeled label subRunner ->
             fromRunnableTreeHelp (label :: labels) subRunner
-
-        Batch runners ->
-            List.concatMap (fromRunnableTreeHelp labels) runners
 
 
 type alias Distribution =
@@ -220,8 +213,8 @@ Some design notes:
     failure when not using `only`, but it magically disappeared as soon as you
     tried to isolate it. The same logic applies to `skip`.
 
-2.  Theoretically this could become tail-recursive. However, the Labeled and Batch
-    cases would presumably become very gnarly, and it's unclear whether there would
+2.  Theoretically this could become tail-recursive. However, the Labeled
+    case would presumably become very gnarly, and it's unclear whether there would
     be a performance benefit or penalty in the end. If some brave soul wants to
     attempt it for kicks, beware that this is not a performance optimization for
     the faint of heart. Practically speaking, it seems unlikely to be worthwhile

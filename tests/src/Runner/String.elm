@@ -49,7 +49,12 @@ toOutputHelp : Runner -> Summary -> Summary
 toOutputHelp runner summary =
     let
         _ =
-            Debug.log "[RUNNER.STRING] --------------------------------------" (List.head runner.labels |> Maybe.withDefault "")
+            Debug.log "[RUNNER.STRING] --------------------------------------"
+                (runner.labels
+                    |> List.take 2
+                    |> List.reverse
+                    |> String.join " / "
+                )
     in
     fromExpectation runner.labels (runner.run ()) summary
 

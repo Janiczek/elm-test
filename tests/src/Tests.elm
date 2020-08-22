@@ -1,5 +1,6 @@
 module Tests exposing (all)
 
+import Array
 import Expect exposing (Expectation, FloatingPointTolerance(..))
 import FloatWithinTests exposing (floatWithinTests)
 import Fuzz exposing (..)
@@ -35,98 +36,281 @@ all =
 
 
 
--- TODO float, floatRange, string, list, array
--- TODO oneOf, oneOfValues, map2, map3, map4, map5, andMap,
--- TODO frequency, frequencyValues, andThen, lazy, filter
+-- TODO float, floatRange
+-- TODO map2, map3, map4, map5, andMap,
+-- TODO andThen, lazy, filter
 -- TODO pair, triple
--- TODO char, order, invalid, weightedBool
+-- TODO order, invalid, weightedBool
 
 
 janiczekTests : Test
 janiczekTests =
     Test.describe "TODO categorize these tests"
-        [ describe "bool"
-            [ canGenerate False Fuzz.bool
-            , canGenerate True Fuzz.bool
-            , simplifiesTowards "simplest" False simplest Fuzz.bool
-            , simplifiesTowards "non-False" True (\v -> v == False) Fuzz.bool
-            ]
-        , describe "unit"
-            [ canGenerate () Fuzz.unit
-            , simplifiesTowards "()" () simplest Fuzz.unit
-            ]
-        , describe "constant"
-            [ passes "Returns what you give it - Int"
-                (Fuzz.constant 42)
-                (\v -> v == 42)
-            , passes "Returns what you give it - different Int"
-                (Fuzz.constant 999)
-                (\v -> v == 999)
-            , passes "Returns what you give it - Bool"
-                (Fuzz.constant True)
-                (\v -> v == True)
-            , simplifiesTowards "42" 42 simplest (Fuzz.constant 42)
-            ]
-        , describe "maybe"
-            [ canGenerateSatisfying "Just" (Fuzz.maybe Fuzz.unit) ((/=) Nothing)
-            , canGenerateSatisfying "Nothing" (Fuzz.maybe Fuzz.unit) ((==) Nothing)
-            ]
-        , describe "result"
-            [ canGenerateSatisfying "Ok"
-                (Fuzz.result Fuzz.unit Fuzz.unit)
-                (Result.toMaybe >> (/=) Nothing)
-            , canGenerateSatisfying "Err"
-                (Fuzz.result Fuzz.unit Fuzz.unit)
-                (Result.toMaybe >> (==) Nothing)
-            ]
-        , describe "map"
-            [ passes "Any number * 2 = even number"
-                (Fuzz.intRange 0 5
-                    |> Fuzz.map (\n -> n * 2)
+        [ describe "Tough examples"
+            [ simplifiesTowards "redistributed additive pair"
+                ( 1, 1000 )
+                (\( m, n ) -> m + n <= 1000)
+                (Fuzz.pair
+                    ( Fuzz.intRange 0 1000
+                    , Fuzz.intRange 0 1000
+                    )
                 )
-                (\n -> modBy 2 n == 0)
-            ]
-        , describe "intRange"
-            [ passes "Full range"
-                (Fuzz.intRange (negate 0xFFFFFFFF) 0xFFFFFFFF)
-                (\n -> n >= negate 0xFFFFFFFF && n <= 0xFFFFFFFF)
-            , passes "Smaller range"
-                (Fuzz.intRange -5 5)
-                (\n -> n >= -5 && n <= 5)
-            , canGenerate (negate 0xFFFFFFFF)
-                (Fuzz.intRange (negate 0xFFFFFFFF) 0xFFFFFFFF)
-            , canGenerate 0xFFFFFFFF
-                (Fuzz.intRange (negate 0xFFFFFFFF) 0xFFFFFFFF)
+            , simplifiesTowards "list written in flip-a-coin way"
+                [ 1001 ]
+                (\list -> List.sum list <= 1000)
+                (Fuzz.list (Fuzz.intRange 0 10000))
+            , simplifiesTowards "list written in length-first way"
+                [ 1001 ]
+                (\list -> List.sum list <= 1000)
+                (Fuzz.intRange 0 10
+                    |> Fuzz.andThen
+                        (\length ->
+                            let
+                                go : Int -> List Int -> Fuzzer (List Int)
+                                go todo acc =
+                                    if todo <= 0 then
+                                        Fuzz.constant (List.reverse acc)
 
-            -- TODO: rejects "Limits out of order (hi < lo)"
+                                    else
+                                        Fuzz.intRange 0 10000
+                                            |> Fuzz.andThen (\item -> go (todo - 1) (item :: acc))
+                            in
+                            go length []
+                        )
+                )
             ]
-        , describe "int"
-            [ passes "Full range"
-                Fuzz.int
-                (\n -> n >= negate 0xFFFFFFFF && n <= 0xFFFFFFFF)
-            , canGenerate (negate 0xFFFFFFFF) Fuzz.int
-            , -- TODO ~janiczek: the probabilities are too low for my liking -
-              -- this test fails way too often
-              canGenerate 0xFFFFFFFF Fuzz.int
-            , cannotGenerateSatisfying "any Infinity"
-                Fuzz.int
-                (isInfinite << toFloat)
-            , cannotGenerateSatisfying "NaN"
-                Fuzz.int
-                (isNaN << toFloat)
-            ]
-        , describe "percentage"
-            [ passes "Range 0..1"
-                Fuzz.percentage
-                (\p -> p >= 0 && p <= 1)
-            , cannotGenerateSatisfying "any Infinity" Fuzz.percentage isInfinite
-            , cannotGenerateSatisfying "NaN" Fuzz.percentage isNaN
-            , simplifiesTowards "simplest" 0 simplest Fuzz.percentage
-            , simplifiesTowards "non-zero" 1 (\v -> v == 0) Fuzz.percentage
-            , simplifiesTowards "non-zero non-one"
-                0.25
-                (\v -> v == 1 || v < 0.25)
-                Fuzz.percentage
+        , describe "Fuzzers"
+            [ describe "bool"
+                [ canGenerate False Fuzz.bool
+                , canGenerate True Fuzz.bool
+                , simplifiesTowards "simplest" False simplest Fuzz.bool
+                , simplifiesTowards "non-False" True (\v -> v == False) Fuzz.bool
+                ]
+            , describe "unit"
+                [ canGenerate () Fuzz.unit
+                , simplifiesTowards "()" () simplest Fuzz.unit
+                ]
+            , describe "constant"
+                [ passes "Returns what you give it - Int"
+                    (Fuzz.constant 42)
+                    (\v -> v == 42)
+                , passes "Returns what you give it - different Int"
+                    (Fuzz.constant 999)
+                    (\v -> v == 999)
+                , passes "Returns what you give it - Bool"
+                    (Fuzz.constant True)
+                    (\v -> v == True)
+                , simplifiesTowards "42" 42 simplest (Fuzz.constant 42)
+                ]
+            , describe "maybe"
+                [ canGenerateSatisfying "Just" (Fuzz.maybe Fuzz.unit) ((/=) Nothing)
+                , canGenerateSatisfying "Nothing" (Fuzz.maybe Fuzz.unit) ((==) Nothing)
+                , simplifiesTowards "simplest" Nothing simplest (Fuzz.maybe Fuzz.int)
+                , simplifiesTowards "non-Nothing" (Just 0) (\x -> x == Nothing) (Fuzz.maybe Fuzz.int)
+                ]
+            , describe "result"
+                [ canGenerateSatisfying "Ok"
+                    (Fuzz.result Fuzz.unit Fuzz.unit)
+                    (Result.toMaybe >> (/=) Nothing)
+                , canGenerateSatisfying "Err"
+                    (Fuzz.result Fuzz.unit Fuzz.unit)
+                    (Result.toMaybe >> (==) Nothing)
+                , simplifiesTowards "simplest"
+                    (Err 0)
+                    simplest
+                    (Fuzz.result Fuzz.int Fuzz.int)
+                , simplifiesTowards "non-Err"
+                    (Ok 0)
+                    (\x -> Result.toMaybe x == Nothing)
+                    (Fuzz.result Fuzz.int Fuzz.int)
+                ]
+            , describe "map"
+                (let
+                    fuzzer : Fuzzer Int
+                    fuzzer =
+                        Fuzz.int
+                            |> Fuzz.map (\n -> n * 2)
+                 in
+                 [ passes "Any number * 2 = even number" fuzzer (\n -> modBy 2 n == 0)
+                 , simplifiesTowards "simplest" 0 simplest fuzzer
+                 , simplifiesTowards "non-zero" 2 (\n -> n == 0) fuzzer
+                 ]
+                )
+            , describe "intRange"
+                [ passes "Full range"
+                    (Fuzz.intRange (negate 0xFFFFFFFF) 0xFFFFFFFF)
+                    (\n -> n >= negate 0xFFFFFFFF && n <= 0xFFFFFFFF)
+                , passes "Smaller range"
+                    (Fuzz.intRange -5 5)
+                    (\n -> n >= -5 && n <= 5)
+                , canGenerate (negate 0xFFFFFFFF)
+                    (Fuzz.intRange (negate 0xFFFFFFFF) 0xFFFFFFFF)
+                , canGenerate 0xFFFFFFFF
+                    (Fuzz.intRange (negate 0xFFFFFFFF) 0xFFFFFFFF)
+                , simplifiesTowards "(-,+) simplest" 0 simplest (Fuzz.intRange -5 5)
+                , simplifiesTowards "(-,+) non-zero" 1 (\n -> n == 0) (Fuzz.intRange -5 5)
+                , simplifiesTowards "(0,+) simplest" 0 simplest (Fuzz.intRange 0 5)
+                , simplifiesTowards "(0,+) non-zero" 1 (\n -> n == 0) (Fuzz.intRange 0 5)
+                , simplifiesTowards "(+,+) simplest" 1 simplest (Fuzz.intRange 1 5)
+                , simplifiesTowards "(+,+) non-low" 2 (\n -> n == 1) (Fuzz.intRange 1 5)
+                , simplifiesTowards "(-,0) simplest" 0 simplest (Fuzz.intRange -5 0)
+                , simplifiesTowards "(-,0) non-zero" -1 (\n -> n == 0) (Fuzz.intRange -5 0)
+                , simplifiesTowards "(-,-) simplest" -1 simplest (Fuzz.intRange -5 -1)
+                , simplifiesTowards "(-,-) non-high" -2 (\n -> n == -1) (Fuzz.intRange -5 -1)
+
+                -- TODO: rejects "Limits out of order (hi < lo)"
+                ]
+            , describe "int"
+                [ passes "Full range"
+                    Fuzz.int
+                    (\n -> n >= negate 0xFFFFFFFF && n <= 0xFFFFFFFF)
+                , canGenerate (negate 0xFFFFFFFF) Fuzz.int
+                , canGenerate 0xFFFFFFFF Fuzz.int
+                , cannotGenerateSatisfying "any Infinity"
+                    Fuzz.int
+                    (isInfinite << toFloat)
+                , cannotGenerateSatisfying "NaN"
+                    Fuzz.int
+                    (isNaN << toFloat)
+                , simplifiesTowards "simplest" 0 simplest Fuzz.int
+                , simplifiesTowards "non-zero" 1 (\n -> n == 0) Fuzz.int
+                , simplifiesTowards "negative" -1 (\n -> n >= 0) Fuzz.int
+                ]
+            , describe "percentage"
+                [ passes "Range 0..1"
+                    Fuzz.percentage
+                    (\p -> p >= 0 && p <= 1)
+                , cannotGenerateSatisfying "any Infinity" Fuzz.percentage isInfinite
+                , cannotGenerateSatisfying "NaN" Fuzz.percentage isNaN
+                , simplifiesTowards "simplest" 0 simplest Fuzz.percentage
+                , simplifiesTowards "non-zero" 1 (\v -> v == 0) Fuzz.percentage
+                , simplifiesTowards "non-zero non-one, specific threshold #1"
+                    0.25
+                    (\v -> v == 1 || v < 0.25)
+                    Fuzz.percentage
+                , simplifiesTowards "non-zero non-one, specific threshold #2"
+                    0.2500000004656613
+                    (\v -> v == 1 || v <= 0.25)
+                    Fuzz.percentage
+                ]
+            , describe "char"
+                [ passes "Range 32..126"
+                    Fuzz.char
+                    (\char ->
+                        let
+                            code =
+                                Char.toCode char
+                        in
+                        code >= 32 && code <= 126
+                    )
+                ]
+            , describe "string"
+                [ canGenerate "" Fuzz.string
+                , canGenerateSatisfying "non-empty string"
+                    Fuzz.string
+                    (not << String.isEmpty)
+                ]
+            , describe "oneOfValues"
+                [ canGenerate 1 (Fuzz.oneOfValues [ 1, 42 ])
+                , canGenerate 42 (Fuzz.oneOfValues [ 1, 42 ])
+                , cannotGenerateSatisfying "not in list"
+                    (Fuzz.oneOfValues [ 1, 42 ])
+                    (\n -> not <| List.member n [ 1, 42 ])
+                , passes "One value -> picks it"
+                    (Fuzz.oneOfValues [ 42 ])
+                    (\n -> n == 42)
+
+                -- TODO rejects: empty list
+                ]
+            , describe "oneOf"
+                (let
+                    fuzzer : Fuzzer Int
+                    fuzzer =
+                        Fuzz.oneOf
+                            [ Fuzz.intRange -2 0
+                            , Fuzz.constant 2
+                            ]
+                 in
+                 [ canGenerate -2 fuzzer
+                 , canGenerate -1 fuzzer
+                 , canGenerate 0 fuzzer
+                 , canGenerate 2 fuzzer
+                 , cannotGenerateSatisfying "not in the range"
+                    fuzzer
+                    (\n -> not <| List.member n [ -2, -1, 0, 2 ])
+                 , passes "One fuzzer -> picks it"
+                    (Fuzz.oneOf [ Fuzz.constant 42 ])
+                    (\n -> n == 42)
+
+                 -- TODO rejects: empty list
+                 ]
+                )
+            , describe "frequencyValues"
+                (let
+                    fuzzer : Fuzzer Int
+                    fuzzer =
+                        Fuzz.frequencyValues
+                            [ ( 0.3, 1 )
+                            , ( 0.7, 42 )
+                            ]
+                 in
+                 [ canGenerate 1 fuzzer
+                 , canGenerate 42 fuzzer
+                 , cannotGenerateSatisfying "not in the range"
+                    fuzzer
+                    (\n -> not <| List.member n [ 1, 42 ])
+                 , passes "One value -> picks it"
+                    (Fuzz.frequencyValues [ ( 0.7, 42 ) ])
+                    (\n -> n == 42)
+
+                 -- TODO rejects: empty list
+                 -- TODO rejects: zero or negative weight
+                 ]
+                )
+            , describe "frequency"
+                (let
+                    fuzzer : Fuzzer Int
+                    fuzzer =
+                        Fuzz.frequency
+                            [ ( 0.3, Fuzz.intRange -2 0 )
+                            , ( 0.7, Fuzz.constant 2 )
+                            ]
+                 in
+                 [ canGenerate -2 fuzzer
+                 , canGenerate -1 fuzzer
+                 , canGenerate 0 fuzzer
+                 , canGenerate 2 fuzzer
+                 , cannotGenerateSatisfying "not in the range"
+                    fuzzer
+                    (\n -> not <| List.member n [ -2, -1, 0, 2 ])
+                 , passes "One fuzzer -> picks it"
+                    (Fuzz.frequency [ ( 0.7, Fuzz.constant 42 ) ])
+                    (\n -> n == 42)
+
+                 -- TODO rejects: empty list
+                 -- TODO rejects: zero or negative weight
+                 ]
+                )
+            , describe "list"
+                [ canGenerate [] (Fuzz.list Fuzz.unit)
+                , canGenerateSatisfying "non-empty list"
+                    (Fuzz.list Fuzz.unit)
+                    (not << List.isEmpty)
+                ]
+            , describe "listOfLength"
+                [ passes "always length 3"
+                    (Fuzz.listOfLength 3 Fuzz.unit)
+                    (\list -> List.length list == 3)
+                , passes "negative length -> empty list"
+                    (Fuzz.listOfLength -3 Fuzz.unit)
+                    List.isEmpty
+                ]
+            , describe "array"
+                [ canGenerate Array.empty (Fuzz.array Fuzz.unit)
+                , canGenerateSatisfying "non-empty array"
+                    (Fuzz.array Fuzz.unit)
+                    (not << Array.isEmpty)
+                ]
             ]
         ]
 

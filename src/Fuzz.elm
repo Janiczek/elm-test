@@ -1,5 +1,5 @@
 module Fuzz exposing
-    ( int, intRange, float, floatRange, percentage, string, bool, maybe, result, list, array
+    ( int, intRange, float, floatRange, percentage, string, bool, maybe, result, list, listOfLength, array
     , Fuzzer, oneOf, oneOfValues, constant, map, map2, map3, map4, map5, andMap, frequency, frequencyValues, andThen, lazy, filter
     , pair, triple
     , char, unit, order, invalid, weightedBool
@@ -18,7 +18,7 @@ can usually find the simplest input that reproduces a bug.
 
 ## Common Fuzzers
 
-@docs int, intRange, float, floatRange, percentage, string, bool, maybe, result, list, array
+@docs int, intRange, float, floatRange, percentage, string, bool, maybe, result, list, listOfLength, array
 
 
 ## Working with Fuzzers
@@ -131,9 +131,9 @@ intRange lo hi =
 
     else
         smallFrequency
-            [ ( 1, constant lo )
+            [ ( 8, intRangeHelp lo hi )
+            , ( 1, constant lo )
             , ( 1, constant hi )
-            , ( 8, intRangeHelp lo hi )
             ]
 
 
@@ -163,7 +163,7 @@ intRangeHelp lo hi =
 
     else
         {- somewhere in the middle, divide it into negative and positive ranges,
-           both of which will simplify towards zero.
+           both of which will simplify towards zero. We prefer positive values.
         -}
         oneOf
             [ intRangeHelp 0 hi -- the conditions above guarantee hi >= 1
@@ -217,9 +217,9 @@ floatRange lo hi =
 
     else
         smallFrequency
-            [ ( 1, constant lo )
+            [ ( 8, scaledFloat lo hi )
+            , ( 1, constant lo )
             , ( 1, constant hi )
-            , ( 8, scaledFloat lo hi )
             ]
 
 
@@ -366,6 +366,13 @@ list fuzzer =
         , ( 2, listOfLengthBetween 10 100 fuzzer )
         , ( 1, listOfLengthBetween 100 400 fuzzer )
         ]
+
+
+{-| TODO docs
+-}
+listOfLength : Int -> Fuzzer a -> Fuzzer (List a)
+listOfLength n fuzzer =
+    listOfLengthBetween n n fuzzer
 
 
 {-| TODO ~janiczek: what about exposing this?
@@ -879,7 +886,7 @@ lazy thunk =
 -}
 internalInt : Int -> Fuzzer Int
 internalInt n =
-    rollDice (Random.int 0 n)
+    rollDice n (Random.int 0 n)
 
 
 {-| A fuzzer for boolean values, generating True with the given probability
@@ -899,7 +906,7 @@ weightedBool p =
         forcedChoice 1
 
      else
-        rollDice (weightedBoolGenerator p)
+        rollDice 1 (weightedBoolGenerator p)
     )
         |> map intToBool
 
@@ -917,8 +924,8 @@ Based on the PRNG value, this function:
   - or picks a number from the hardcoded list. (PRNG.Hardcoded)
 
 -}
-rollDice : Random.Generator Int -> Fuzzer Int
-rollDice diceGenerator =
+rollDice : Int -> Random.Generator Int -> Fuzzer Int
+rollDice maxValue diceGenerator =
     Fuzzer <|
         \prng ->
             if RandomRun.isOverCapacity (PRNG.getRun prng) then
@@ -937,6 +944,12 @@ rollDice diceGenerator =
                         if diceRoll < 0 then
                             Rejected
                                 { reason = "elm-test bug: generated a choice < 0"
+                                , prng = prng
+                                }
+
+                        else if diceRoll > maxValue then
+                            Rejected
+                                { reason = "elm-test bug: generated a choice > maxChoice"
                                 , prng = prng
                                 }
 
@@ -959,10 +972,17 @@ rollDice diceGenerator =
                                     }
 
                             Just ( hardcodedChoice, restOfChoices ) ->
-                                Generated
-                                    { value = hardcodedChoice
-                                    , prng = Hardcoded { h | unusedPart = restOfChoices }
-                                    }
+                                if hardcodedChoice > maxValue then
+                                    Rejected
+                                        { reason = "elm-test bug: generated a choice > maxChoice"
+                                        , prng = prng
+                                        }
+
+                                else
+                                    Generated
+                                        { value = hardcodedChoice
+                                        , prng = Hardcoded { h | unusedPart = restOfChoices }
+                                        }
 
 
 forcedChoice : Int -> Fuzzer Int

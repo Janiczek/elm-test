@@ -36,7 +36,7 @@ testSimplifying_ test =
             Random.initialSeed 99
     in
     test
-        |> Test.Runner.fromTest 100 seed
+        |> Test.Runner.fromTest 1000 seed
         |> getRunners
         |> List.head
         |> Maybe.map
@@ -69,7 +69,7 @@ testFailing test =
             Random.initialSeed 99
     in
     test
-        |> Test.Runner.fromTest 100 seed
+        |> Test.Runner.fromTest 1000 seed
         |> getRunners
         |> List.head
         |> Maybe.map

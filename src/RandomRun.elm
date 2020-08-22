@@ -7,8 +7,8 @@ module RandomRun exposing
     , empty
     , get
     , isEmpty
+    , isFull
     , isInBounds
-    , isOverCapacity
     , length
     , nextChoice
     , replace
@@ -17,6 +17,7 @@ module RandomRun exposing
     , sortChunk
     , swapIfOutOfOrder
     , toList
+    , update
     )
 
 import MicroListExtra as List
@@ -24,8 +25,10 @@ import Queue exposing (Queue)
 
 
 type alias RandomRun =
-    { length : Int
-    , data : Queue Int
+    { data : Queue Int
+
+    -- derived precomputed data:
+    , length : Int
     }
 
 
@@ -48,11 +51,6 @@ maxLength =
     8196
 
 
-isOverCapacity : RandomRun -> Bool
-isOverCapacity run =
-    run.length >= maxLength
-
-
 type alias Chunk =
     { size : Int
     , startIndex : Int
@@ -61,14 +59,19 @@ type alias Chunk =
 
 empty : RandomRun
 empty =
-    { length = 0
-    , data = Queue.empty
+    { data = Queue.empty
+    , length = 0
     }
 
 
 isEmpty : RandomRun -> Bool
 isEmpty run =
     run.length == 0
+
+
+isFull : RandomRun -> Bool
+isFull run =
+    run.length == maxLength
 
 
 nextChoice : RandomRun -> Maybe ( Int, RandomRun )
@@ -166,6 +169,11 @@ replace values run =
     replaceInList values run.length (Queue.toList run.data)
 
 
+{-| An optimization to not do Queue.toList redundantly.
+
+Expects `list == Queue.toList run.data`
+
+-}
 replaceInList : List ( Int, Int ) -> Int -> List Int -> RandomRun
 replaceInList values len list =
     { length = len
@@ -251,3 +259,13 @@ compare a b =
 toList : RandomRun -> List Int
 toList run =
     Queue.toList run.data
+
+
+update : Int -> (Int -> Int) -> RandomRun -> RandomRun
+update index fn run =
+    case get index run of
+        Nothing ->
+            run
+
+        Just value ->
+            replace [ ( index, fn value ) ] run

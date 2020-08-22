@@ -928,7 +928,7 @@ rollDice : Int -> Random.Generator Int -> Fuzzer Int
 rollDice maxValue diceGenerator =
     Fuzzer <|
         \prng ->
-            if RandomRun.isOverCapacity (PRNG.getRun prng) then
+            if RandomRun.isFull (PRNG.getRun prng) then
                 Rejected
                     { reason = "Your fuzzers hit a recursion limit"
                     , prng = prng
@@ -972,9 +972,17 @@ rollDice maxValue diceGenerator =
                                     }
 
                             Just ( hardcodedChoice, restOfChoices ) ->
-                                if hardcodedChoice > maxValue then
+                                if hardcodedChoice < 0 then
+                                    -- This happens eg. when decrementing after delete shrink
                                     Rejected
-                                        { reason = "elm-test bug: generated a choice > maxChoice"
+                                        { reason = "elm-test internals: generated a choice < 0"
+                                        , prng = prng
+                                        }
+
+                                else if hardcodedChoice > maxValue then
+                                    -- This happens eg. when redistributing choices
+                                    Rejected
+                                        { reason = "elm-test internals: generated a choice > maxChoice"
                                         , prng = prng
                                         }
 
@@ -995,7 +1003,7 @@ forcedChoice n =
                     , prng = prng
                     }
 
-            else if RandomRun.isOverCapacity (PRNG.getRun prng) then
+            else if RandomRun.isFull (PRNG.getRun prng) then
                 Rejected
                     { reason = "Your fuzzers hit a recursion limit"
                     , prng = prng

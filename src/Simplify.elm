@@ -73,7 +73,7 @@ runCmd : SimplifyCmd -> State a -> State a
 runCmd cmd state =
     case cmd of
         DeleteChunkAndMaybeDecrementPrevious chunk ->
-            deleteChunk chunk state
+            deleteChunkAndMaybeDecrementPrevious chunk state
 
         ReplaceChunkWithZero chunk ->
             replaceChunkWithZero chunk state
@@ -137,18 +137,34 @@ keepIfStillFails newRandomRun state =
 -- SIMPLIFY CMD IMPLEMENTATIONS
 
 
-deleteChunk : Chunk -> State a -> State a
-deleteChunk chunk state =
+deleteChunkAndMaybeDecrementPrevious : Chunk -> State a -> State a
+deleteChunkAndMaybeDecrementPrevious chunk state =
     if RandomRun.isInBounds chunk state.randomRun then
         let
-            simplifiedRun : RandomRun
-            simplifiedRun =
+            runWithDelete : RandomRun
+            runWithDelete =
                 RandomRun.deleteChunk chunk state.randomRun
 
-            { newState } =
-                keepIfStillFails simplifiedRun state
+            afterDelete =
+                keepIfStillFails runWithDelete state
         in
-        newState
+        if afterDelete.stillFails then
+            {- Try reducing the number before this removed chunk, it's frequently
+               the length parameter.
+            -}
+            let
+                runWithDecrement : RandomRun
+                runWithDecrement =
+                    runWithDelete
+                        |> RandomRun.update (chunk.startIndex - 1) (\x -> x - 1)
+
+                afterDecrement =
+                    keepIfStillFails runWithDecrement afterDelete.newState
+            in
+            afterDecrement.newState
+
+        else
+            afterDelete.newState
 
     else
         state

@@ -174,7 +174,7 @@ float =
         int32
         int32
         bool
-        |> filter (\n -> not <| isInfinite n)
+        |> filter (\n -> not <| isInfinite n || isNaN n)
 
 
 {-| A fuzzer for float values within between a given minimum and maximum

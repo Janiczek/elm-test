@@ -48,7 +48,7 @@ simplifyWhileProgress state =
                 "[SIMPLIFY] simplifyWhileProgress RESULT"
                 ( RandomRun.toList nextState.randomRun, nextState.value )
     in
-    if nextState.randomRun == state.randomRun then
+    if RandomRun.equal nextState.randomRun state.randomRun then
         ( nextState.value, nextState.randomRun )
 
     else
@@ -106,7 +106,7 @@ keepIfStillFails newRandomRun state =
             , newState = state
             }
     in
-    if state.randomRun == newRandomRun then
+    if RandomRun.equal state.randomRun newRandomRun then
         nope ()
 
     else

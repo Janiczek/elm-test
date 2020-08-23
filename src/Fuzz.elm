@@ -966,6 +966,7 @@ rollDice maxValue diceGenerator =
                     Hardcoded h ->
                         case RandomRun.nextChoice h.unusedPart of
                             Nothing ->
+                                -- This happens if we simplified too much / in an incompatible way
                                 Rejected
                                     { reason = "elm-test internals: hardcoded PRNG run out of numbers"
                                     , prng = prng
@@ -1017,11 +1018,27 @@ forcedChoice n =
                             , prng = Random { r | run = RandomRun.append n r.run }
                             }
 
-                    Hardcoded _ ->
-                        Rejected
-                            { reason = "elm-test internals: tried to overwrite a hardcoded PRNG"
-                            , prng = prng
-                            }
+                    Hardcoded h ->
+                        case RandomRun.nextChoice h.unusedPart of
+                            Nothing ->
+                                -- This happens if we simplified too much / in an incompatible way
+                                Rejected
+                                    { reason = "elm-test internals: hardcoded PRNG run out of numbers"
+                                    , prng = prng
+                                    }
+
+                            Just ( hardcodedChoice, restOfChoices ) ->
+                                if hardcodedChoice /= n then
+                                    Rejected
+                                        { reason = "elm-test internals: hardcoded value was not the same as the forced one"
+                                        , prng = prng
+                                        }
+
+                                else
+                                    Generated
+                                        { value = n
+                                        , prng = Hardcoded { h | unusedPart = restOfChoices }
+                                        }
 
 
 {-| We could golf this to ((/=) 0) but this is perhaps more readable.

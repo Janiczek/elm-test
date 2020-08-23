@@ -5,6 +5,7 @@ module RandomRun exposing
     , compare
     , deleteChunk
     , empty
+    , equal
     , get
     , isEmpty
     , isFull
@@ -269,3 +270,8 @@ update index fn run =
 
         Just value ->
             replace [ ( index, fn value ) ] run
+
+
+equal : RandomRun -> RandomRun -> Bool
+equal run1 run2 =
+    toList run1 == toList run2

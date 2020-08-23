@@ -1,4 +1,4 @@
-module Helpers exposing (different, expectPass, expectSimplifiesTo, expectTestToFail, expectToFail, randomSeedFuzzer, same, succeeded, testFailing, testSimplifying, testSimplifying_, testStringLengthIsPreserved)
+module Helpers exposing (different, expectPass, expectSimplifiesTo, expectTestToFail, expectToFail, randomSeedFuzzer, same, succeeded, testFailing, testSimplifying, testStringLengthIsPreserved)
 
 import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer)
@@ -17,8 +17,8 @@ expectSimplifiesTo label a =
     Expect.equal True a |> Expect.onFail label
 
 
-testSimplifying_ : Test -> Test
-testSimplifying_ test =
+testSimplifying : Int -> Test -> Test
+testSimplifying runs test =
     let
         handleFailure { given, description } =
             case given of
@@ -36,7 +36,7 @@ testSimplifying_ test =
             Random.initialSeed 99
     in
     test
-        |> Test.Runner.fromTest 1000 seed
+        |> Test.Runner.fromTest runs seed
         |> getRunners
         |> List.head
         |> Maybe.map
@@ -85,38 +85,6 @@ testFailing test =
                             |> passToFail handleFailure
             )
         |> Maybe.withDefault (Test.test "Failed" <| \() -> Expect.fail "Failed")
-
-
-testSimplifying : Test -> Test
-testSimplifying test =
-    let
-        handleFailure { given, description } =
-            let
-                acceptable =
-                    String.split "|" description
-            in
-            case given of
-                Nothing ->
-                    Err "Expected this test to have a given value!"
-
-                Just g ->
-                    if List.member g acceptable then
-                        Ok ()
-
-                    else
-                        Err <| "Got simplified value " ++ g ++ " but expected " ++ String.join " or " acceptable
-
-        seed =
-            Random.initialSeed 99
-    in
-    test
-        |> Test.Runner.fromTest 100 seed
-        |> getRunners
-        |> List.map (.run >> (\run -> run ()))
-        |> List.map (passToFail handleFailure)
-        |> List.map (\result -> \() -> result)
-        |> List.indexedMap (\i t -> Test.test (String.fromInt i) t)
-        |> Test.describe "testSimplifying"
 
 
 expectPass : a -> Expectation

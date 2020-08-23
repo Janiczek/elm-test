@@ -7,6 +7,7 @@ import Random
 import Simplify
 import Test.Expectation exposing (Expectation(..))
 import Test.Internal exposing (Test(..), blankDescriptionFailure)
+import Test.Runner.Failure exposing (InvalidReason(..), Reason(..))
 
 
 {-| Reject always-failing tests because of bad names or invalid fuzzers.
@@ -40,7 +41,7 @@ validatedFuzzTest fuzzer getExpectation =
 
 
 type alias Failure =
-    { given : String
+    { given : Maybe String
     , expectation : Expectation
     }
 
@@ -87,8 +88,15 @@ runOneFuzzIteration fuzzer getExpectation ( _, currentSeed ) =
         maybeFailure : Maybe Failure
         maybeFailure =
             case genResult of
-                Rejected _ ->
-                    Nothing
+                Rejected { reason } ->
+                    Just
+                        { given = Nothing
+                        , expectation =
+                            Test.Expectation.fail
+                                { description = reason
+                                , reason = Invalid InvalidFuzzer
+                                }
+                        }
 
                 Generated { prng, value } ->
                     testGeneratedValue
@@ -142,11 +150,16 @@ findSimplestFailure state =
         ( simplestValue, _ ) =
             Simplify.simplify state
     in
-    { given = Test.Internal.toString simplestValue
+    { given = Just <| Test.Internal.toString simplestValue
     , expectation = state.getExpectation simplestValue
     }
 
 
 formatExpectation : Failure -> Expectation
 formatExpectation { given, expectation } =
-    Test.Expectation.withGiven given expectation
+    case given of
+        Nothing ->
+            expectation
+
+        Just given_ ->
+            Test.Expectation.withGiven given_ expectation

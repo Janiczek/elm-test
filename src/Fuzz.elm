@@ -80,6 +80,8 @@ TODO ~janiczek: I'm not sure I even agree with this ^. What if you want to
 fuzz-test some invariant over the whole "input space" of a function, and you
 don't care what the boolean argument is?
 
+Simplifies in order `False < True`.
+
 -}
 bool : Fuzzer Bool
 bool =
@@ -87,6 +89,9 @@ bool =
 
 
 {-| A fuzzer for order values.
+
+Simplifies in order `LT < EQ < GT`.
+
 -}
 order : Fuzzer Order
 order =
@@ -96,7 +101,11 @@ order =
 {-| A fuzzer for int values. It will never produce `NaN`, `Infinity`, or
 `-Infinity`.
 
-It's possible for this fuzzer to generate any 32-bit integer, signed or unsigned.
+This fuzzer will generate values in the range `Random.minInt .. Random.maxInt`,
+but it will also try generating in the range `-(2^32) .. 2^32`. No guarantees
+though!
+
+Simplifies towards 0; prefers positive values over negative ones.
 
 -}
 int : Fuzzer Int

@@ -22,10 +22,7 @@ fuzzerTests =
                 \a b c ->
                     testStringLengthIsPreserved [ a, b, c ]
             ]
-        , fuzz
-            (intRange 1 6)
-            "intRange"
-            (Expect.greaterThan 0)
+        , fuzz (intRange 1 6) "intRange" (Expect.greaterThan 0)
         , fuzz
             (frequency
                 [ ( 1, intRange 1 6 )
@@ -365,8 +362,9 @@ fuzzerSpecificationTests =
                 , simplifiesTowards "(-,0) non-zero" -1 (Fuzz.intRange -5 0) (\n -> n == 0)
                 , simplifiesTowards "(-,-) simplest" -1 (Fuzz.intRange -5 -1) fullySimplify
                 , simplifiesTowards "(-,-) non-high" -2 (Fuzz.intRange -5 -1) (\n -> n == -1)
-
-                -- TODO: rejects "Limits out of order (hi < lo)"
+                , rejects "min > max"
+                    (Fuzz.intRange 5 -5)
+                    "Fuzz.intRange was given a lower bound of 5 which is greater than the upper bound, -5."
                 ]
             , describe "int"
                 [ cannotGenerateSatisfying "any Infinity"
@@ -623,10 +621,10 @@ fuzzerSpecificationTests =
                         |> Fuzz.andThen (\x -> Fuzz.list (Fuzz.constant x))
                     )
                     (\x -> List.length x < 3)
-                , simplifiesTowardsWith { runs = 2000 }
+                , simplifiesTowards
                     "rectangles"
                     [ [ 'a', 'b' ] ]
-                    (Fuzz.intRange 0 10
+                    (Fuzz.intRange 0 4
                         |> Fuzz.andThen
                             (\len ->
                                 Fuzz.list
@@ -635,7 +633,7 @@ fuzzerSpecificationTests =
                                     )
                             )
                     )
-                    (\lists -> List.member [ 'a', 'b' ] lists)
+                    (\lists -> List.head lists /= Just [ 'a', 'b' ])
                 ]
             , describe "weightedBool"
                 [ canGenerate False (Fuzz.weightedBool 0.5)
@@ -763,3 +761,16 @@ simplifiesTowardsWith { runs } label value fuzzer fn =
                 fn fuzzedValue
                     |> expectSimplifiesTo valueString
             )
+
+
+rejects : String -> Fuzzer a -> String -> Test
+rejects label fuzzer expectedReason =
+    fuzz randomSeedFuzzer ("Rejects: " ++ label) <|
+        \seed ->
+            case Random.step (Test.Runner.fuzz fuzzer) seed of
+                ( Err reason, _ ) ->
+                    reason
+                        |> Expect.equal expectedReason
+
+                _ ->
+                    Expect.fail "Fuzzer generated a value instead of being marked as invalid"

@@ -492,12 +492,25 @@ drive the simplification process: if a simplified value passes the test, it will
 be discarded. In this sense, you will get the simplest value that still fails
 your test.
 -}
-simplify : (a -> Expectation) -> ( a, Simplifiable a ) -> a
+simplify : (a -> Expectation) -> ( a, Simplifiable a ) -> Maybe ( a, Simplifiable a )
 simplify getExpectation ( value, Simplifiable { randomRun, fuzzer } ) =
-    Simplify.simplify
-        { getExpectation = getExpectation
-        , fuzzer = fuzzer
-        , randomRun = randomRun
-        , value = value
-        }
-        |> Tuple.first
+    let
+        ( newValue, newRandomRun ) =
+            Simplify.simplify
+                { getExpectation = getExpectation
+                , fuzzer = fuzzer
+                , randomRun = randomRun
+                , value = value
+                }
+    in
+    if RandomRun.equal newRandomRun randomRun then
+        Nothing
+
+    else
+        Just
+            ( newValue
+            , Simplifiable
+                { randomRun = newRandomRun
+                , fuzzer = fuzzer
+                }
+            )

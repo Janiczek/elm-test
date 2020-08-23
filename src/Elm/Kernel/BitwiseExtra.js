@@ -12,15 +12,16 @@ var _BitwiseExtra_reverseBits = F2(function(count, value)
     //   memo[rev] = n
 
     var result;
+    var maskedValue = value & ((1 << count) - 1);
 
     reverseBitsMemo[count] = reverseBitsMemo[count] || {};
 
     if (count in reverseBitsMemo && value in reverseBitsMemo[count]) {
         result = reverseBitsMemo[count][value];
     } else {
-        result = actuallyReverseBits(count, value);
-        reverseBitsMemo[count][value] = result;
-        reverseBitsMemo[count][result] = value;
+        result = actuallyReverseBits(count, maskedValue);
+        reverseBitsMemo[count][maskedValue] = result;
+        reverseBitsMemo[count][result] = maskedValue;
     }
 
     return result;

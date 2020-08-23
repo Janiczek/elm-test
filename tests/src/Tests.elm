@@ -35,14 +35,6 @@ all =
     janiczekTests
 
 
-
--- TODO float, floatRange
--- TODO map2, map3, map4, map5, andMap,
--- TODO andThen, lazy, filter
--- TODO pair, triple
--- TODO order, invalid, weightedBool
-
-
 janiczekTests : Test
 janiczekTests =
     Test.describe "TODO categorize these tests"
@@ -60,6 +52,8 @@ janiczekTests =
                 (\list -> List.sum list <= 1000)
                 (Fuzz.list (Fuzz.intRange 0 10000))
             , simplifiesTowards "list written in length-first way"
+                -- TODO this has problems with run [2,0,1001]
+                --                        == value [0,1001]
                 [ 1001 ]
                 (\list -> List.sum list <= 1000)
                 (Fuzz.intRange 0 10
@@ -84,7 +78,14 @@ janiczekTests =
                 [ canGenerate False Fuzz.bool
                 , canGenerate True Fuzz.bool
                 , simplifiesTowards "simplest" False simplest Fuzz.bool
-                , simplifiesTowards "non-False" True (\v -> v == False) Fuzz.bool
+                , simplifiesTowards "next simplest" True (\v -> v == False) Fuzz.bool
+                ]
+            , describe "order"
+                [ canGenerate LT Fuzz.order
+                , canGenerate EQ Fuzz.order
+                , canGenerate GT Fuzz.order
+                , simplifiesTowards "simplest" LT simplest Fuzz.order
+                , simplifiesTowards "next simplest" EQ (\x -> x == LT) Fuzz.order
                 ]
             , describe "unit"
                 [ canGenerate () Fuzz.unit
@@ -137,12 +138,12 @@ janiczekTests =
                  ]
                 )
             , describe "intRange"
-                [ passes "Full range"
-                    (Fuzz.intRange (negate 0xFFFFFFFF) 0xFFFFFFFF)
-                    (\n -> n >= negate 0xFFFFFFFF && n <= 0xFFFFFFFF)
-                , passes "Smaller range"
+                [ passes "Smaller range"
                     (Fuzz.intRange -5 5)
                     (\n -> n >= -5 && n <= 5)
+                , cannotGenerateSatisfying "Smaller range"
+                    (Fuzz.intRange -5 5)
+                    (\n -> n < -5 && n > 5)
                 , simplifiesTowards "(-,+) simplest" 0 simplest (Fuzz.intRange -5 5)
                 , simplifiesTowards "(-,+) non-zero" 1 (\n -> n == 0) (Fuzz.intRange -5 5)
                 , simplifiesTowards "(0,+) simplest" 0 simplest (Fuzz.intRange 0 5)
@@ -157,10 +158,7 @@ janiczekTests =
                 -- TODO: rejects "Limits out of order (hi < lo)"
                 ]
             , describe "int"
-                [ passes "Full range"
-                    Fuzz.int
-                    (\n -> n >= negate 0xFFFFFFFF && n <= 0xFFFFFFFF)
-                , cannotGenerateSatisfying "any Infinity"
+                [ cannotGenerateSatisfying "any Infinity"
                     Fuzz.int
                     (isInfinite << toFloat)
                 , cannotGenerateSatisfying "NaN"
@@ -197,10 +195,14 @@ janiczekTests =
                         in
                         code >= 32 && code <= 126
                     )
+                , simplifiesTowards "simplest" ' ' simplest Fuzz.char
+                , simplifiesTowards "next simplest" '!' (\c -> c == ' ') Fuzz.char
+                , simplifiesTowards "above A" 'B' (\c -> Char.toCode c <= Char.toCode 'A') Fuzz.char
                 ]
             , describe "string"
                 [ canGenerate "" Fuzz.string
                 , canGenerateSatisfying "non-empty string"
+                    -- TODO flaky test: the probability isn't great without preferring empty string
                     Fuzz.string
                     (not << String.isEmpty)
                 ]
@@ -213,6 +215,8 @@ janiczekTests =
                 , passes "One value -> picks it"
                     (Fuzz.oneOfValues [ 42 ])
                     (\n -> n == 42)
+                , simplifiesTowards "simplest" 42 simplest (Fuzz.oneOfValues [ 42, 1, 999 ])
+                , simplifiesTowards "next simplest" 1 (\x -> x == 42) (Fuzz.oneOfValues [ 42, 1, 999 ])
 
                 -- TODO rejects: empty list
                 ]
@@ -223,6 +227,14 @@ janiczekTests =
                         Fuzz.oneOf
                             [ Fuzz.intRange -2 0
                             , Fuzz.constant 2
+                            ]
+
+                    constFuzzer : Fuzzer Int
+                    constFuzzer =
+                        Fuzz.oneOf
+                            [ Fuzz.constant 42
+                            , Fuzz.constant 1
+                            , Fuzz.constant 999
                             ]
                  in
                  [ canGenerate -2 fuzzer
@@ -235,6 +247,8 @@ janiczekTests =
                  , passes "One fuzzer -> picks it"
                     (Fuzz.oneOf [ Fuzz.constant 42 ])
                     (\n -> n == 42)
+                 , simplifiesTowards "simplest" 42 simplest constFuzzer
+                 , simplifiesTowards "next simplest" 1 (\x -> x == 42) constFuzzer
 
                  -- TODO rejects: empty list
                  ]
@@ -247,6 +261,14 @@ janiczekTests =
                             [ ( 0.3, 1 )
                             , ( 0.7, 42 )
                             ]
+
+                    simplifyFuzzer : Fuzzer Int
+                    simplifyFuzzer =
+                        Fuzz.frequencyValues
+                            [ ( 1, 42 )
+                            , ( 2, 1 )
+                            , ( 3, 999 )
+                            ]
                  in
                  [ canGenerate 1 fuzzer
                  , canGenerate 42 fuzzer
@@ -256,6 +278,8 @@ janiczekTests =
                  , passes "One value -> picks it"
                     (Fuzz.frequencyValues [ ( 0.7, 42 ) ])
                     (\n -> n == 42)
+                 , simplifiesTowards "simplest" 42 simplest simplifyFuzzer
+                 , simplifiesTowards "next simplest" 1 (\x -> x == 42) simplifyFuzzer
 
                  -- TODO rejects: empty list
                  -- TODO rejects: zero or negative weight
@@ -269,6 +293,14 @@ janiczekTests =
                             [ ( 0.3, Fuzz.intRange -2 0 )
                             , ( 0.7, Fuzz.constant 2 )
                             ]
+
+                    simplifyFuzzer : Fuzzer Int
+                    simplifyFuzzer =
+                        Fuzz.frequency
+                            [ ( 1, Fuzz.constant 42 )
+                            , ( 2, Fuzz.constant 1 )
+                            , ( 3, Fuzz.constant 999 )
+                            ]
                  in
                  [ canGenerate -2 fuzzer
                  , canGenerate -1 fuzzer
@@ -280,6 +312,8 @@ janiczekTests =
                  , passes "One fuzzer -> picks it"
                     (Fuzz.frequency [ ( 0.7, Fuzz.constant 42 ) ])
                     (\n -> n == 42)
+                 , simplifiesTowards "simplest" 42 simplest simplifyFuzzer
+                 , simplifiesTowards "next simplest" 1 (\x -> x == 42) simplifyFuzzer
 
                  -- TODO rejects: empty list
                  -- TODO rejects: zero or negative weight
@@ -290,6 +324,8 @@ janiczekTests =
                 , canGenerateSatisfying "non-empty list"
                     (Fuzz.list Fuzz.unit)
                     (not << List.isEmpty)
+                , simplifiesTowards "simplest" [] simplest (Fuzz.list Fuzz.int)
+                , simplifiesTowards "next simplest" [ 0 ] (\x -> x == []) (Fuzz.list Fuzz.int)
                 ]
             , describe "listOfLength"
                 [ passes "always length 3"
@@ -298,13 +334,82 @@ janiczekTests =
                 , passes "negative length -> empty list"
                     (Fuzz.listOfLength -3 Fuzz.unit)
                     List.isEmpty
+                , simplifiesTowards "simplest" [ 0, 0, 0 ] simplest (Fuzz.listOfLength 3 Fuzz.int)
+                , simplifiesTowards "next simplest" [ 0, 0, 1 ] (\x -> x == [ 0, 0, 0 ]) (Fuzz.listOfLength 3 Fuzz.int)
                 ]
             , describe "array"
                 [ canGenerate Array.empty (Fuzz.array Fuzz.unit)
                 , canGenerateSatisfying "non-empty array"
                     (Fuzz.array Fuzz.unit)
                     (not << Array.isEmpty)
+                , simplifiesTowards "simplest" Array.empty simplest (Fuzz.array Fuzz.int)
+                , simplifiesTowards "next simplest" (Array.fromList [ 0 ]) (\x -> Array.isEmpty x) (Fuzz.array Fuzz.int)
                 ]
+            , describe "andThen"
+                [ passes "integer defined by another integer"
+                    (Fuzz.intRange 0 5
+                        |> Fuzz.andThen
+                            (\m ->
+                                Fuzz.pair
+                                    ( Fuzz.constant m
+                                    , Fuzz.intRange m (m + 10)
+                                    )
+                            )
+                    )
+                    (\( m, n ) -> m <= n && n <= m + 10)
+                ]
+            , describe "weightedBool"
+                [ canGenerate False (Fuzz.weightedBool 0.5)
+                , canGenerate True (Fuzz.weightedBool 0.5)
+                , passes "0 = always False"
+                    (Fuzz.weightedBool 0)
+                    (\bool -> bool == False)
+                , passes "1 = always True"
+                    (Fuzz.weightedBool 1)
+                    (\bool -> bool == True)
+                , passes "<0 clamps to 0"
+                    (Fuzz.weightedBool -0.5)
+                    (\bool -> bool == False)
+                , passes ">1 clamps to 1"
+                    (Fuzz.weightedBool 1.5)
+                    (\bool -> bool == True)
+                ]
+            , describe "float"
+                [ cannotGenerateSatisfying "NaN" Fuzz.float isNaN
+                , cannotGenerateSatisfying "Infinity" Fuzz.float isInfinite
+                , canGenerateSatisfying "negative" Fuzz.float (\f -> f < 0)
+                , canGenerateSatisfying "positive" Fuzz.float (\f -> f > 0)
+                , simplifiesTowards "simplest" 0 simplest Fuzz.float
+                , simplifiesTowards "next simplest" 1 (\x -> x == 0) Fuzz.float
+                , simplifiesTowards "simplest non-int"
+                    -- TODO ~janiczek: hmmm... should prefer simple fractions first...
+                    0.5
+                    (\x -> x - toFloat (truncate x) == 0)
+                    Fuzz.float
+                , simplifiesTowards "simplest negative" -1 (\x -> x >= 0) Fuzz.float
+                ]
+            , describe "floatRange"
+                [ passes "Smaller range"
+                    (Fuzz.floatRange -5 5)
+                    (\n -> n >= -5 && n <= 5)
+                , cannotGenerateSatisfying "Smaller range"
+                    (Fuzz.floatRange -5 5)
+                    (\n -> n < -5 && n > 5)
+                , simplifiesTowards "(-,+) simplest" 0 simplest (Fuzz.floatRange -5 5)
+                , simplifiesTowards "(-,+) non-zero" 5.684341896668713e-13 (\n -> n == 0) (Fuzz.floatRange -5 5)
+                , simplifiesTowards "(0,+) simplest" 0 simplest (Fuzz.floatRange 0 5)
+                , simplifiesTowards "(0,+) non-zero" 5.684341896668713e-13 (\n -> n == 0) (Fuzz.floatRange 0 5)
+                , simplifiesTowards "(+,+) simplest" 1 simplest (Fuzz.floatRange 1 5)
+                , simplifiesTowards "(+,+) non-low" 1.0000000000004547 (\n -> n == 1) (Fuzz.floatRange 1 5)
+                , simplifiesTowards "(-,0) simplest" 0 simplest (Fuzz.floatRange -5 0)
+                , simplifiesTowards "(-,0) non-zero" -5.684341896668713e-13 (\n -> n == 0) (Fuzz.floatRange -5 0)
+                , simplifiesTowards "(-,-) simplest" -1 simplest (Fuzz.floatRange -5 -1)
+                , simplifiesTowards "(-,-) non-high" -1.0000000000004547 (\n -> n == -1) (Fuzz.floatRange -5 -1)
+
+                -- TODO: rejects "Limits out of order (hi < lo)"
+                ]
+            , todo "filter"
+            , todo "invalid"
             ]
         ]
 

@@ -174,6 +174,7 @@ float =
         int32
         int32
         bool
+        |> filter (\n -> not <| isNaN n || isInfinite n)
 
 
 {-| A fuzzer for float values within between a given minimum and maximum
@@ -197,8 +198,24 @@ floatRange lo hi =
     else if lo == hi then
         constant lo
 
-    else
+    else if lo >= 0 then
+        -- both non-negative
         scaledFloat lo hi
+
+    else if hi <= 0 then
+        -- both negative
+        scaledFloat (negate hi) (negate lo)
+            -- simplify towards zero
+            |> map negate
+
+    else
+        {- somewhere in the middle, divide it into negative and positive ranges,
+           both of which will simplify towards zero. We prefer positive values.
+        -}
+        oneOf
+            [ floatRange 0 hi
+            , floatRange lo 0
+            ]
 
 
 {-| TODO ~janiczek: This won't shrink nicely? Can we make it do so?
@@ -785,8 +802,8 @@ invalid reason =
 
 {-| TODO comment
 -}
-filter : String -> (a -> Bool) -> Fuzzer a -> Fuzzer a
-filter label predicate fuzzer =
+filter : (a -> Bool) -> Fuzzer a -> Fuzzer a
+filter predicate fuzzer =
     fuzzer
         |> andThen
             (\value ->
@@ -794,11 +811,7 @@ filter label predicate fuzzer =
                     constant value
 
                 else
-                    invalid <|
-                        "["
-                            ++ label
-                            ++ "] A value was filtered out: "
-                            ++ Test.Internal.toString value
+                    invalid <| "A value was filtered out: " ++ Test.Internal.toString value
             )
 
 

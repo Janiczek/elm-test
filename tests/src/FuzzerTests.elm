@@ -610,7 +610,8 @@ fuzzerSpecificationTests =
                         |> Fuzz.andThen (\x -> Fuzz.list (Fuzz.constant x))
                     )
                     fullySimplify
-                , simplifiesTowards "can ignore LHS"
+                , simplifiesTowardsWith { runs = 1000 }
+                    "can ignore LHS"
                     [ 0, 0, 0 ]
                     (Fuzz.int
                         |> Fuzz.andThen (\_ -> Fuzz.list Fuzz.int)

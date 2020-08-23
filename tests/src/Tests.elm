@@ -205,6 +205,9 @@ janiczekTests =
                     -- TODO flaky test: the probability isn't great without preferring empty string
                     Fuzz.string
                     (not << String.isEmpty)
+                , simplifiesTowards "simplest" "" simplest Fuzz.string
+                , simplifiesTowards "next simplest" " " (\x -> x == "") Fuzz.string
+                , simplifiesTowards "alpha" "A" (\x -> x == "" || not (String.all Char.isAlpha x)) Fuzz.string
                 ]
             , describe "oneOfValues"
                 [ canGenerate 1 (Fuzz.oneOfValues [ 1, 42 ])

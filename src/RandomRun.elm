@@ -269,7 +269,15 @@ update index fn run =
             run
 
         Just value ->
-            replace [ ( index, fn value ) ] run
+            let
+                newValue =
+                    fn value
+            in
+            if newValue < 0 then
+                run
+
+            else
+                replace [ ( index, fn value ) ] run
 
 
 equal : RandomRun -> RandomRun -> Bool

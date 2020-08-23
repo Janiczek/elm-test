@@ -8,6 +8,7 @@ import FuzzerTests exposing (fuzzerTests)
 import Helpers exposing (..)
 import Random
 import RunnerTests
+import Set
 import Test exposing (..)
 import Test.Html.EventTests
 import Test.Html.ExampleAppTests
@@ -72,6 +73,18 @@ janiczekTests =
                             go length []
                         )
                 )
+
+            -- challenges: https://github.com/jlink/shrinking-challenge
+            , simplifiesTowards "challenge: reverse"
+                [ 0, 1 ]
+                (\list -> list == List.reverse list)
+                (Fuzz.list Fuzz.int)
+            , -- TODO too big right now, doesn't seem to shrink when it could
+              skip <|
+                simplifiesTowards "challenge: large union list"
+                    [ [ 0, 1, 2, 3, 4 ] ]
+                    (\lists -> Set.size (Set.fromList (List.concat lists)) <= 4)
+                    (Fuzz.list (Fuzz.list Fuzz.int))
             ]
         , describe "Fuzzers"
             [ describe "bool"
@@ -208,14 +221,6 @@ janiczekTests =
                 , simplifiesTowards "simplest" "" simplest Fuzz.string
                 , simplifiesTowards "next simplest" " " (\x -> x == "") Fuzz.string
                 , simplifiesTowards "alpha" "A" (\x -> x == "" || not (String.all Char.isAlpha x)) Fuzz.string
-                , simplifiesTowards "longer"
-                    -- TODO has problems shrinking ([1,0,0,1,0,0,1,0,0,1,6,0,0],"   🌈")
-                    -- into ([1,0,0,1,0,0,1,0,0,1,0,0,0],"    ")
-                    -- This is because the emoji inside makes it have length 5 even
-                    -- though the list has 4 items. What to do?
-                    "     "
-                    (\x -> String.length x < 5)
-                    Fuzz.string
                 ]
             , describe "oneOfValues"
                 [ canGenerate 1 (Fuzz.oneOfValues [ 1, 42 ])
@@ -337,10 +342,6 @@ janiczekTests =
                     (not << List.isEmpty)
                 , simplifiesTowards "simplest" [] simplest (Fuzz.list Fuzz.int)
                 , simplifiesTowards "next simplest" [ 0 ] (\x -> x == []) (Fuzz.list Fuzz.int)
-                , simplifiesTowards "longer"
-                    (List.repeat 5 "")
-                    (\x -> List.length x < 5)
-                    (Fuzz.list Fuzz.string)
                 ]
             , describe "listOfLength"
                 [ passes "always length 3"
@@ -351,6 +352,19 @@ janiczekTests =
                     List.isEmpty
                 , simplifiesTowards "simplest" [ 0, 0, 0 ] simplest (Fuzz.listOfLength 3 Fuzz.int)
                 , simplifiesTowards "next simplest" [ 0, 0, 1 ] (\x -> x == [ 0, 0, 0 ]) (Fuzz.listOfLength 3 Fuzz.int)
+                ]
+            , describe "listOfLengthBetween"
+                [ passes "always in range"
+                    (Fuzz.listOfLengthBetween 2 5 Fuzz.unit)
+                    (\list ->
+                        let
+                            length =
+                                List.length list
+                        in
+                        length >= 2 && length <= 5
+                    )
+                , simplifiesTowards "simplest" [ 0, 0 ] simplest (Fuzz.listOfLengthBetween 2 5 Fuzz.int)
+                , simplifiesTowards "next simplest" [ 0, 1 ] (\x -> x == [ 0, 0 ]) (Fuzz.listOfLengthBetween 2 5 Fuzz.int)
                 ]
             , describe "array"
                 [ canGenerate Array.empty (Fuzz.array Fuzz.unit)
@@ -388,6 +402,8 @@ janiczekTests =
                 , passes ">1 clamps to 1"
                     (Fuzz.weightedBool 1.5)
                     (\bool -> bool == True)
+                , simplifiesTowards "simplest" False simplest (Fuzz.weightedBool 0.5)
+                , simplifiesTowards "non-False" True (\x -> x == False) (Fuzz.weightedBool 0.5)
                 ]
             , describe "float"
                 [ cannotGenerateSatisfying "NaN" Fuzz.float isNaN

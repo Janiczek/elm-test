@@ -1,5 +1,5 @@
 module Fuzz exposing
-    ( int, intRange, float, floatRange, percentage, string, bool, maybe, result, list, listOfLength, array
+    ( int, intRange, float, floatRange, percentage, string, bool, maybe, result, list, listOfLength, listOfLengthBetween, array
     , Fuzzer, oneOf, oneOfValues, constant, map, map2, map3, map4, map5, andMap, frequency, frequencyValues, andThen, lazy, filter
     , pair, triple
     , char, unit, order, invalid, weightedBool
@@ -18,7 +18,7 @@ can usually find the simplest input that reproduces a bug.
 
 ## Common Fuzzers
 
-@docs int, intRange, float, floatRange, percentage, string, bool, maybe, result, list, listOfLength, array
+@docs int, intRange, float, floatRange, percentage, string, bool, maybe, result, list, listOfLength, listOfLengthBetween, array
 
 
 ## Working with Fuzzers
@@ -174,7 +174,7 @@ float =
         int32
         int32
         bool
-        |> filter (\n -> not <| isNaN n || isInfinite n)
+        |> filter (\n -> not <| isInfinite n)
 
 
 {-| A fuzzer for float values within between a given minimum and maximum
@@ -213,8 +213,9 @@ floatRange lo hi =
            both of which will simplify towards zero. We prefer positive values.
         -}
         oneOf
-            [ floatRange 0 hi
-            , floatRange lo 0
+            [ scaledFloat 0 hi
+            , scaledFloat 0 (negate lo)
+                |> map negate
             ]
 
 
@@ -343,7 +344,7 @@ listOfLength n fuzzer =
     listOfLengthBetween n n fuzzer
 
 
-{-| TODO ~janiczek: what about exposing this?
+{-| TODO docs
 -}
 listOfLengthBetween : Int -> Int -> Fuzzer a -> Fuzzer (List a)
 listOfLengthBetween lo hi itemFuzzer =
@@ -858,7 +859,7 @@ internalInt n =
 
 Probabilities outside the `0..1` range will be clamped to `0..1`.
 
-TODO ~janiczek: Does this actually shrink toward True and not False?
+Simplifies towards False (if not prevented to do that by using probability >= 1).
 
 -}
 weightedBool : Float -> Fuzzer Bool

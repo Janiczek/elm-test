@@ -208,6 +208,14 @@ janiczekTests =
                 , simplifiesTowards "simplest" "" simplest Fuzz.string
                 , simplifiesTowards "next simplest" " " (\x -> x == "") Fuzz.string
                 , simplifiesTowards "alpha" "A" (\x -> x == "" || not (String.all Char.isAlpha x)) Fuzz.string
+                , simplifiesTowards "longer"
+                    -- TODO has problems shrinking ([1,0,0,1,0,0,1,0,0,1,6,0,0],"   🌈")
+                    -- into ([1,0,0,1,0,0,1,0,0,1,0,0,0],"    ")
+                    -- This is because the emoji inside makes it have length 5 even
+                    -- though the list has 4 items. What to do?
+                    "     "
+                    (\x -> String.length x < 5)
+                    Fuzz.string
                 ]
             , describe "oneOfValues"
                 [ canGenerate 1 (Fuzz.oneOfValues [ 1, 42 ])
@@ -329,6 +337,10 @@ janiczekTests =
                     (not << List.isEmpty)
                 , simplifiesTowards "simplest" [] simplest (Fuzz.list Fuzz.int)
                 , simplifiesTowards "next simplest" [ 0 ] (\x -> x == []) (Fuzz.list Fuzz.int)
+                , simplifiesTowards "longer"
+                    (List.repeat 5 "")
+                    (\x -> List.length x < 5)
+                    (Fuzz.list Fuzz.string)
                 ]
             , describe "listOfLength"
                 [ passes "always length 3"

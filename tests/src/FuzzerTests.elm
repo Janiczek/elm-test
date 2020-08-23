@@ -8,7 +8,6 @@ import Random
 import Set
 import Test exposing (..)
 import Test.Runner exposing (Simplifiable)
-import Validate
 
 
 fuzzerTests : Test
@@ -37,8 +36,6 @@ fuzzerTests =
             , unicodeStringFuzzerTests
             ]
         , fuzzerSpecificationTests
-        , whitespaceTest
-        , email
         ]
 
 
@@ -122,51 +119,6 @@ manualFuzzerTests =
                         )
                     |> Maybe.withDefault (Expect.fail "no final value")
         ]
-
-
-whitespaceTest : Test
-whitespaceTest =
-    describe "fuzzing whitespace (taken from rtfeldman/elm-validate, which crashed when this first ran)"
-        [ fuzz whitespace "whitespace characters are blank" <|
-            \str ->
-                str
-                    |> Validate.isBlank
-                    |> Expect.equal True
-                    >> Expect.onFail "Validate.isBlank should consider whitespace blank"
-        , fuzz2 whitespace whitespace "non-whitespace characters mean it's not blank" <|
-            \prefix suffix ->
-                (prefix ++ "_" ++ suffix)
-                    |> Validate.isBlank
-                    |> Expect.equal False
-                    >> Expect.onFail "Validate.isBlank shouldn't consider strings containing non-whitespace characters blank"
-        ]
-
-
-email : Test
-email =
-    describe "email"
-        [ test "empty string is not a valid email" <|
-            \() ->
-                ""
-                    |> Validate.isValidEmail
-                    |> Expect.equal False
-                    >> Expect.onFail "Validate.isValidEmail should have considered empty string blank"
-        , test "valid email is valid" <|
-            \() ->
-                "foo@bar.com"
-                    |> Validate.isValidEmail
-                    |> Expect.equal True
-                    >> Expect.onFail "Validate.isValidEmail should have considered foo@bar.com a valid email address"
-        ]
-
-
-whitespace : Fuzzer String
-whitespace =
-    [ ' ', '\u{00A0}', '\t', '\n' ]
-        |> List.map Fuzz.constant
-        |> Fuzz.oneOf
-        |> Fuzz.list
-        |> Fuzz.map String.fromList
 
 
 unicodeStringFuzzerTests : Test

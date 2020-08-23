@@ -74,7 +74,6 @@ main =
                 , ( Name "elm" "html", [ Version 1 0 0] )
                 , ( Name "elm" "json", [ Version 1 1 3] )
                 , ( Name "elm" "random", [ Version 1 0 0] )
-                , ( Name "elm" "regex", [ Version 1 0 0] )
                 , ( Name "elm" "time", [ Version 1 0 0] )
                 , ( Name "elm" "url", [ Version 1 0 0] )
                 , ( Name "elm" "virtual-dom", [ Version 1 0 2] )
@@ -83,6 +82,5 @@ main =
                 , ( Name "elm-explorations" "test", [ Version 1 2 2] )
                 , ( Name "elm-explorations" "webgl", [ Version 1 1 2] )
                 , ( Name "jinjor" "elm-diff", [ Version 1 0 6] )
-                , ( Name "rtfeldman" "elm-validate", [ Version 4 0 1] )
                 , ( Name "turboMaCk" "queue", [ Version 1 0 2] )
                 ]

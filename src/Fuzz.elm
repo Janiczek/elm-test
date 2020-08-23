@@ -358,12 +358,8 @@ listOfLength n fuzzer =
 listOfLengthBetween : Int -> Int -> Fuzzer a -> Fuzzer (List a)
 listOfLengthBetween lo hi itemFuzzer =
     if lo > hi then
-        invalid <|
-            "elm-test bug: Fuzz.listOfLengthBetween was given a lower bound of "
-                ++ String.fromInt lo
-                ++ " which is greater than the upper bound, "
-                ++ String.fromInt hi
-                ++ "."
+        -- the name allows for it, even if it's a little weird
+        listOfLengthBetween hi lo itemFuzzer
 
     else if hi <= 0 then
         constant []
@@ -654,54 +650,66 @@ so:
 -}
 frequency : List ( Float, Fuzzer a ) -> Fuzzer a
 frequency fuzzers =
-    if List.isEmpty fuzzers then
-        invalid "You must provide at least one frequency pair."
+    frequencyHelp "Fuzz.frequency" fuzzers
 
-    else if List.any (\( w, _ ) -> w < 0) fuzzers then
-        invalid "No frequency weights can be less than 0."
+
+frequencyHelp : String -> List ( Float, Fuzzer a ) -> Fuzzer a
+frequencyHelp functionName fuzzers =
+    {- TODO might cumulative form be better for performance than this countdown
+       style? Python stdlib does it this way.
+
+       TODO also, Hypothesis does Vali's alias method instead -- supposedly it has
+       some initialization cost but then is faster during actual generation?
+    -}
+    if List.any (\( w, _ ) -> w < 0) fuzzers then
+        invalid <| functionName ++ ": No frequency weights can be less than 0."
 
     else
         let
-            weightSum =
-                List.foldl (\( w, _ ) acc -> w + acc) 0 fuzzers
+            nonzeroFuzzers =
+                List.filter (\( w, _ ) -> w > 0) fuzzers
         in
-        if weightSum == 0 then
-            invalid "Frequency weights must sum to more than 0."
-
-        else if
-            List.all (\( w, _ ) -> w == toFloat (round w)) fuzzers
-                && weightSum
-                < 20
-        then
-            smallIntFrequency (List.map (Tuple.mapFirst round) fuzzers)
+        if List.isEmpty nonzeroFuzzers then
+            invalid <| functionName ++ ": You must provide at least one frequency pair with weight greater than 0."
 
         else
-            percentage
-                |> andThen
-                    (\p ->
-                        let
-                            f : Float
-                            f =
-                                p * weightSum
+            let
+                weightSum =
+                    List.foldl (\( w, _ ) acc -> w + acc) 0 nonzeroFuzzers
 
-                            go : Float -> List ( Float, Fuzzer a ) -> Fuzzer a
-                            go countdown acc =
-                                case acc of
-                                    [] ->
-                                        invalid "elm-test bug: frequency encountered empty list after checking for it"
+                allWeightsAreInts =
+                    List.all (\( w, _ ) -> w == toFloat (round w)) nonzeroFuzzers
+            in
+            if allWeightsAreInts && weightSum < 20 then
+                smallIntFrequency (List.map (Tuple.mapFirst round) nonzeroFuzzers)
 
-                                    [ ( _, last ) ] ->
-                                        last
+            else
+                percentage
+                    |> andThen
+                        (\p ->
+                            let
+                                f : Float
+                                f =
+                                    p * weightSum
 
-                                    ( w, current ) :: rest ->
-                                        if countdown <= w then
-                                            current
+                                go : Float -> List ( Float, Fuzzer a ) -> Fuzzer a
+                                go countdown acc =
+                                    case acc of
+                                        [] ->
+                                            invalid <| "elm-test bug: " ++ functionName ++ " encountered empty list after checking for it."
 
-                                        else
-                                            go (countdown - w) rest
-                        in
-                        go f fuzzers
-                    )
+                                        [ ( _, last ) ] ->
+                                            last
+
+                                        ( w, current ) :: rest ->
+                                            if countdown <= w then
+                                                current
+
+                                            else
+                                                go (countdown - w) rest
+                            in
+                            go f nonzeroFuzzers
+                        )
 
 
 {-| A restricted version of `frequency` that has a nicer RandomRun footprint.
@@ -746,7 +754,8 @@ fuzzer, which causes it to fail any test that uses it:
 -}
 frequencyValues : List ( Float, a ) -> Fuzzer a
 frequencyValues values =
-    frequency (List.map (Tuple.mapSecond constant) values)
+    frequencyHelp "Fuzz.frequencyValues"
+        (List.map (Tuple.mapSecond constant) values)
 
 
 {-| Choose one of the given fuzzers at random. Each fuzzer has an equal chance
@@ -763,9 +772,14 @@ will also apply its own way to simplify the values).
 -}
 oneOf : List (Fuzzer a) -> Fuzzer a
 oneOf fuzzers =
+    oneOfHelp "Fuzz.oneOf" "fuzzer" fuzzers
+
+
+oneOfHelp : String -> String -> List (Fuzzer a) -> Fuzzer a
+oneOfHelp functionName itemName fuzzers =
     case List.length fuzzers of
         0 ->
-            invalid "oneOf: empty list"
+            invalid <| functionName ++ ": You must provide at least one item."
 
         length ->
             internalInt (length - 1)
@@ -774,7 +788,7 @@ oneOf fuzzers =
                         case List.getAt i fuzzers of
                             Nothing ->
                                 -- shouldn't happen
-                                invalid "oneOf: bug - didn't find a generator in the list"
+                                invalid <| "elm-test bug: " ++ functionName ++ " didn't find a " ++ itemName ++ " in the list."
 
                             Just fuzzer ->
                                 fuzzer
@@ -793,8 +807,8 @@ This fuzzer will simplify towards the values earlier in the list.
 
 -}
 oneOfValues : List a -> Fuzzer a
-oneOfValues aList =
-    oneOf (List.map constant aList)
+oneOfValues values =
+    oneOfHelp "Fuzz.oneOfValues" "value" (List.map constant values)
 
 
 {-| A fuzzer that is invalid for the provided reason. Any fuzzers built with it
@@ -821,6 +835,7 @@ filter predicate fuzzer =
                     constant value
 
                 else
+                    -- TODO "too many values filtered out" failure reason
                     invalid <| "A value was filtered out: " ++ Test.Internal.toString value
             )
 

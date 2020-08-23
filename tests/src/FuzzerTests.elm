@@ -21,16 +21,6 @@ fuzzerTests =
                 \a b c ->
                     testStringLengthIsPreserved [ a, b, c ]
             ]
-        , fuzz (intRange 1 6) "intRange" (Expect.greaterThan 0)
-        , fuzz
-            (frequency
-                [ ( 1, intRange 1 6 )
-                , ( 1, intRange 1 20 )
-                ]
-            )
-            "Fuzz.frequency"
-            (Expect.greaterThan 0)
-        , fuzz (result string int) "Fuzz.result" <| \r -> Expect.pass
         , describe "Whitebox testing using Fuzz.Internal"
             [ manualFuzzerTests
             , unicodeStringFuzzerTests
@@ -304,6 +294,9 @@ fuzzerSpecificationTests =
                 , cannotGenerateSatisfying "Smaller range"
                     (Fuzz.intRange -5 5)
                     (\n -> n < -5 && n > 5)
+                , passes "Dice"
+                    (Fuzz.intRange 1 6)
+                    (\n -> n > 0)
                 , simplifiesTowards "(-,+) simplest" 0 (Fuzz.intRange -5 5) fullySimplify
                 , simplifiesTowards "(-,+) non-zero" 1 (Fuzz.intRange -5 5) (\n -> n == 0)
                 , simplifiesTowards "(0,+) simplest" 0 (Fuzz.intRange 0 5) fullySimplify
@@ -385,8 +378,9 @@ fuzzerSpecificationTests =
                     (\n -> n == 42)
                 , simplifiesTowards "simplest" 42 (Fuzz.oneOfValues [ 42, 1, 999 ]) fullySimplify
                 , simplifiesTowards "next simplest" 1 (Fuzz.oneOfValues [ 42, 1, 999 ]) (\x -> x == 42)
-
-                -- TODO rejects: empty list
+                , rejects "empty list"
+                    (Fuzz.oneOfValues [])
+                    "Fuzz.oneOfValues: You must provide at least one item."
                 ]
             , describe "oneOf"
                 (let
@@ -417,8 +411,9 @@ fuzzerSpecificationTests =
                     (\n -> n == 42)
                  , simplifiesTowards "simplest" 42 constFuzzer fullySimplify
                  , simplifiesTowards "next simplest" 1 constFuzzer (\x -> x == 42)
-
-                 -- TODO rejects: empty list
+                 , rejects "empty list"
+                    (Fuzz.oneOf [])
+                    "Fuzz.oneOf: You must provide at least one item."
                  ]
                 )
             , describe "frequencyValues"
@@ -448,9 +443,21 @@ fuzzerSpecificationTests =
                     (\n -> n == 42)
                  , simplifiesTowards "simplest" 42 simplifyFuzzer fullySimplify
                  , simplifiesTowards "next simplest" 1 simplifyFuzzer (\x -> x == 42)
-
-                 -- TODO rejects: empty list
-                 -- TODO rejects: zero or negative weight
+                 , rejects "empty list"
+                    (Fuzz.frequencyValues [])
+                    "Fuzz.frequencyValues: You must provide at least one frequency pair with weight greater than 0."
+                 , rejects "zero weight"
+                    (Fuzz.frequencyValues [ ( 0, () ) ])
+                    "Fuzz.frequencyValues: You must provide at least one frequency pair with weight greater than 0."
+                 , doesNotReject "zero and non-zero weight"
+                    (Fuzz.frequencyValues
+                        [ ( 0, () )
+                        , ( 1, () )
+                        ]
+                    )
+                 , rejects "negative weight"
+                    (Fuzz.frequencyValues [ ( -1, () ) ])
+                    "Fuzz.frequencyValues: No frequency weights can be less than 0."
                  ]
                 )
             , describe "frequency"
@@ -480,11 +487,30 @@ fuzzerSpecificationTests =
                  , passes "One fuzzer -> picks it"
                     (Fuzz.frequency [ ( 0.7, Fuzz.constant 42 ) ])
                     (\n -> n == 42)
+                 , passes "One of two dice"
+                    (Fuzz.frequency
+                        [ ( 1, Fuzz.intRange 1 6 )
+                        , ( 1, Fuzz.intRange 1 20 )
+                        ]
+                    )
+                    (\n -> n > 0)
                  , simplifiesTowards "simplest" 42 simplifyFuzzer fullySimplify
                  , simplifiesTowards "next simplest" 1 simplifyFuzzer (\x -> x == 42)
-
-                 -- TODO rejects: empty list
-                 -- TODO rejects: zero or negative weight
+                 , rejects "empty list"
+                    (Fuzz.frequency [])
+                    "Fuzz.frequency: You must provide at least one frequency pair with weight greater than 0."
+                 , rejects "zero weight"
+                    (Fuzz.frequency [ ( 0, Fuzz.unit ) ])
+                    "Fuzz.frequency: You must provide at least one frequency pair with weight greater than 0."
+                 , doesNotReject "zero and non-zero weight"
+                    (Fuzz.frequency
+                        [ ( 0, Fuzz.unit )
+                        , ( 1, Fuzz.unit )
+                        ]
+                    )
+                 , rejects "negative weight"
+                    (Fuzz.frequency [ ( -1, Fuzz.unit ) ])
+                    "Fuzz.frequency: No frequency weights can be less than 0."
                  ]
                 )
             , describe "list"
@@ -521,6 +547,7 @@ fuzzerSpecificationTests =
                     )
                 , simplifiesTowards "simplest" [ 0, 0 ] (Fuzz.listOfLengthBetween 2 5 Fuzz.int) fullySimplify
                 , simplifiesTowards "next simplest" [ 0, 1 ] (Fuzz.listOfLengthBetween 2 5 Fuzz.int) (\x -> x == [ 0, 0 ])
+                , doesNotReject "swapped arguments" (Fuzz.listOfLengthBetween 5 -5 Fuzz.unit)
                 ]
             , describe "array"
                 [ canGenerateWith { runs = 1000 } Array.empty (Fuzz.array Fuzz.unit)
@@ -636,11 +663,14 @@ fuzzerSpecificationTests =
                 , simplifiesTowards "(-,0) non-zero" -5.684341896668713e-13 (Fuzz.floatRange -5 0) (\n -> n == 0)
                 , simplifiesTowards "(-,-) simplest" -1 (Fuzz.floatRange -5 -1) fullySimplify
                 , simplifiesTowards "(-,-) non-high" -1.0000000000004547 (Fuzz.floatRange -5 -1) (\n -> n == -1)
-
-                -- TODO: rejects "Limits out of order (hi < lo)"
+                , rejects "min > max"
+                    (Fuzz.floatRange 5 -5)
+                    "Fuzz.floatRange was given a lower bound of 5 which is greater than the upper bound, -5."
+                ]
+            , describe "invalid"
+                [ rejects "with user's message" (Fuzz.invalid "boo") "boo"
                 ]
             , todo "filter"
-            , todo "invalid"
             ]
         ]
 
@@ -726,3 +756,10 @@ rejects label fuzzer expectedReason =
 
                 _ ->
                     Expect.fail "Fuzzer generated a value instead of being marked as invalid"
+
+
+doesNotReject : String -> Fuzzer a -> Test
+doesNotReject label fuzzer =
+    passes ("Does not reject: " ++ label)
+        fuzzer
+        (\_ -> True)

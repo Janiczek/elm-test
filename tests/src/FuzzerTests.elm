@@ -197,19 +197,6 @@ fuzzerSpecificationTests =
                         )
                 )
                 (\list -> List.sum list <= 1000)
-
-            -- challenges: https://github.com/jlink/shrinking-challenge
-            , simplifiesTowardsWith { runs = 1000 }
-                "challenge: reverse"
-                [ 0, 1 ]
-                (Fuzz.list Fuzz.int)
-                (\list -> list == List.reverse list)
-            , -- TODO too big right now, doesn't seem to shrink when it could
-              skip <|
-                simplifiesTowards "challenge: large union list"
-                    [ [ 0, 1, 2, 3, 4 ] ]
-                    (Fuzz.list (Fuzz.list Fuzz.int))
-                    (\lists -> Set.size (Set.fromList (List.concat lists)) <= 4)
             ]
         , describe "Fuzzers"
             [ describe "bool"

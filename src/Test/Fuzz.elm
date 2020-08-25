@@ -41,25 +41,27 @@ validatedFuzzTest : ValidFuzzer a -> (a -> Expectation) -> Test
 validatedFuzzTest fuzzer getExpectation =
     FuzzTest
         (\seed runs ->
-            case runAllFuzzIterations fuzzer getExpectation seed runs |> Dict.toList of
-                [] ->
+            case runUntilFailure fuzzer getExpectation seed runs of
+                Nothing ->
                     [ Pass ]
 
-                failures ->
-                    List.map formatExpectation failures
+                Just failures ->
+                    [ formatExpectation failures ]
         )
 
 
 type alias Failures =
-    Dict String Expectation
+    Maybe ( String, Expectation )
 
 
 {-| Runs the specified number of fuzz tests and returns a dictionary of simplified failures.
 -}
-runAllFuzzIterations : ValidFuzzer a -> (a -> Expectation) -> Random.Seed -> Int -> Failures
-runAllFuzzIterations fuzzer getExpectation initialSeed totalRuns =
+runUntilFailure : ValidFuzzer a -> (a -> Expectation) -> Random.Seed -> Int -> Failures
+runUntilFailure fuzzer getExpectation initialSeed totalRuns =
     runOneFuzzIteration fuzzer getExpectation
-        |> foldUntil totalRuns ( Dict.empty, initialSeed )
+        |> foldUntil totalRuns
+            (\( failure, _ ) -> failure /= Nothing)
+            ( Nothing, initialSeed )
         -- throw away the random seed
         |> Tuple.first
 
@@ -80,7 +82,7 @@ runOneFuzzIteration fuzzer getExpectation ( failures, currentSeed ) =
 
                 Just ( k, v ) ->
                     -- record test failure
-                    Dict.insert k v failures
+                    Just ( k, v )
     in
     ( newFailures, nextSeed )
 
@@ -88,13 +90,13 @@ runOneFuzzIteration fuzzer getExpectation ( failures, currentSeed ) =
 {-| Run a function whose inputs are the same as its outputs a given number of times. Requires the initial state to pass
 in and returns the final state. This generic combinator extracts the "run n times" logic from our test running code.
 -}
-foldUntil : Int -> a -> (a -> a) -> a
-foldUntil remainingRuns initialState f =
-    if remainingRuns <= 1 then
+foldUntil : Int -> (a -> Bool) -> a -> (a -> a) -> a
+foldUntil remainingRuns endingCondition initialState f =
+    if remainingRuns <= 1 || endingCondition initialState then
         initialState
 
     else
-        foldUntil (remainingRuns - 1) (f initialState) f
+        foldUntil (remainingRuns - 1) endingCondition (f initialState) f
 
 
 {-| Given a rosetree -- a root to test and branches of simplifications -- run the test and perform simplification if it fails.

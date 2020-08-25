@@ -1,88 +1,86 @@
 module Main exposing (main)
 
 import Benchmark exposing (..)
-import Benchmark.Runner as Runner
-import Expect exposing (Expectation)
-import Random.Pcg
-import Snippets
-import Test.Internal exposing (Test(Labeled, Test))
+import Benchmark.Runner exposing (BenchmarkProgram)
+import Expect
+import Fuzz
+import Random
+import Test
+import Test.Runner
 
 
-main : Runner.BenchmarkProgram
 main =
-    Runner.program suite
+    Benchmark.Runner.program suite
 
 
 suite : Benchmark
 suite =
-    describe "Fuzz"
-        [ describe "int"
-            [ benchmark "generating" (benchTest Snippets.intPass)
-            , benchmark "simplifying" (benchTest Snippets.intFail)
-            ]
-        , describe "intRange"
-            [ benchmark "generating" (benchTest Snippets.intRangePass)
-            , benchmark "simplifying" (benchTest Snippets.intRangeFail)
-            ]
-        , describe "string"
-            [ benchmark "generating" (benchTest Snippets.stringPass)
-            , benchmark "simplifying" (benchTest Snippets.stringFail)
-            ]
-        , describe "float"
-            [ benchmark "generating" (benchTest Snippets.floatPass)
-            , benchmark "simplifying" (benchTest Snippets.floatFail)
-            ]
-        , describe "bool"
-            [ benchmark "generating" (benchTest Snippets.boolPass)
-            , benchmark "simplifying" (benchTest Snippets.boolFail)
-            ]
-        , describe "char"
-            [ benchmark "generating" (benchTest Snippets.charPass)
-            , benchmark "simplifying" (benchTest Snippets.charFail)
-            ]
-        , describe "list of int"
-            [ benchmark "generating" (benchTest Snippets.listIntPass)
-            , benchmark "simplifying" (benchTest Snippets.listIntFail)
-            ]
-        , describe "maybe of int"
-            [ benchmark "generating" (benchTest Snippets.maybeIntPass)
-            , benchmark "simplifying" (benchTest Snippets.maybeIntFail)
-            ]
-        , describe "result of string and int"
-            [ benchmark "generating" (benchTest Snippets.resultPass)
-            , benchmark "simplifying" (benchTest Snippets.resultFail)
-            ]
-        , describe "map"
-            [ benchmark "generating" (benchTest Snippets.mapPass)
-            , benchmark "simplifying" (benchTest Snippets.mapFail)
-            ]
-        , describe "andMap"
-            [ benchmark "generating" (benchTest Snippets.andMapPass)
-            , benchmark "simplifying" (benchTest Snippets.andMapFail)
-            ]
-        , describe "map5"
-            [ benchmark "generating" (benchTest Snippets.map5Pass)
-            , benchmark "simplifying" (benchTest Snippets.map5Fail)
-            ]
-        , describe "andThen"
-            [ benchmark "generating" (benchTest Snippets.andThenPass)
-            , benchmark "simplifying" (benchTest Snippets.andThenFail)
-            ]
-        , describe "conditional"
-            [ benchmark "generating" (benchTest Snippets.conditionalPass)
-            , benchmark "simplifying" (benchTest Snippets.conditionalFail)
-            ]
+    Benchmark.describe "elm-test"
+        [ benchmark_ "bool"
+            Fuzz.bool
+        , benchmark_ "int 0 10"
+            (Fuzz.intRange 0 10)
+        , benchmark_ "weightedBool 0.75"
+            (Fuzz.percentage
+                |> Fuzz.map (\p -> p <= 0.75)
+            )
+        , benchmark_ "unit"
+            Fuzz.unit
+        , benchmark_ "triple ints"
+            (Fuzz.triple
+                ( Fuzz.intRange 0 10
+                , Fuzz.intRange 0 10
+                , Fuzz.intRange 0 10
+                )
+            )
+        , benchmark_ "list of ints"
+            (Fuzz.list (Fuzz.intRange 0 10))
         ]
 
 
-benchTest : Test -> (() -> List Expectation)
-benchTest test =
-    case test of
-        Test fn ->
-            \_ -> fn (Random.Pcg.initialSeed 0) 10
+benchmark_ :
+    String
+    -> Fuzz.Fuzzer a
+    -> Benchmark
+benchmark_ label fuzzer =
+    let
+        genAndShrink seed () =
+            let
+                runners =
+                    Test.Runner.fromTest 100
+                        seed
+                        (Test.fuzz
+                            fuzzer
+                            "elm-test"
+                            (always (Expect.fail "shrink more!"))
+                        )
+            in
+            case runners of
+                Test.Runner.Plain xs ->
+                    List.map (\runner -> runner.run ()) xs
 
-        Labeled _ test ->
-            benchTest test
+                Test.Runner.Only xs ->
+                    List.map (\runner -> runner.run ()) xs
 
-        test ->
-            Debug.crash <| "No support for benchmarking this type of test: " ++ toString test
+                Test.Runner.Skipping xs ->
+                    List.map (\runner -> runner.run ()) xs
+
+                Test.Runner.Invalid str ->
+                    [ [] ]
+
+        gen seed () =
+            Test.Runner.fuzz fuzzer
+                |> Result.map (\gen_ -> Random.step gen_ seed)
+    in
+    describe label
+        [ benchmark "(0) gen" (gen (Random.initialSeed 0))
+        , benchmark "(1) gen" (gen (Random.initialSeed 1))
+        , benchmark "(2) gen" (gen (Random.initialSeed 2))
+        , benchmark "(3) gen" (gen (Random.initialSeed 3))
+        , benchmark "(4) gen" (gen (Random.initialSeed 4))
+        , benchmark "(0) gen + shrink" (genAndShrink (Random.initialSeed 0))
+        , benchmark "(1) gen + shrink" (genAndShrink (Random.initialSeed 1))
+        , benchmark "(2) gen + shrink" (genAndShrink (Random.initialSeed 2))
+        , benchmark "(3) gen + shrink" (genAndShrink (Random.initialSeed 3))
+        , benchmark "(4) gen + shrink" (genAndShrink (Random.initialSeed 4))
+        ]

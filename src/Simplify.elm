@@ -34,23 +34,8 @@ simplify state =
 simplifyWhileProgress : State a -> ( a, RandomRun )
 simplifyWhileProgress state =
     let
-        _ =
-            Debug.log "[SIMPLIFY] ----------------------------" ()
-    in
-    let
-        _ =
-            Debug.log
-                "[SIMPLIFY] simplifyWhileProgress INPUT "
-                ( RandomRun.toList state.randomRun, state.value )
-    in
-    let
         nextState =
             simplifyOnce state
-
-        _ =
-            Debug.log
-                "[SIMPLIFY] simplifyWhileProgress OUTPUT"
-                ( RandomRun.toList nextState.randomRun, nextState.value )
     in
     if RandomRun.equal nextState.randomRun state.randomRun then
         ( nextState.value, nextState.randomRun )
@@ -62,9 +47,7 @@ simplifyWhileProgress state =
 simplifyOnce : State a -> State a
 simplifyOnce state =
     runCmds
-        (Simplify.Cmd.cmdsForRun state.randomRun
-         -- |> Debug.log "[SIMPLIFY] cmds"
-        )
+        (Simplify.Cmd.cmdsForRun state.randomRun)
         state
 
 

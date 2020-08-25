@@ -21,12 +21,11 @@ module RandomRun exposing
     , update
     )
 
-import MicroListExtra as List
-import Queue exposing (Queue)
+import Deque exposing (Deque)
 
 
 type alias RandomRun =
-    { data : Queue Int
+    { data : Deque Int
 
     -- derived precomputed data:
     , length : Int
@@ -60,7 +59,7 @@ type alias Chunk =
 
 empty : RandomRun
 empty =
-    { data = Queue.empty
+    { data = Deque.empty
     , length = 0
     }
 
@@ -77,7 +76,7 @@ isFull run =
 
 nextChoice : RandomRun -> Maybe ( Int, RandomRun )
 nextChoice run =
-    case Queue.dequeue run.data of
+    case Deque.popFront run.data of
         ( Nothing, _ ) ->
             Nothing
 
@@ -95,7 +94,7 @@ append : Int -> RandomRun -> RandomRun
 append n run =
     { run
         | length = run.length + 1
-        , data = Queue.enqueue n run.data
+        , data = Deque.pushBack n run.data
     }
 
 
@@ -112,42 +111,33 @@ length run =
 getChunk : Chunk -> RandomRun -> List Int
 getChunk chunk run =
     run.data
-        |> Queue.toList
-        |> List.drop chunk.startIndex
-        |> List.take chunk.size
+        |> Deque.dropLeft chunk.startIndex
+        |> Deque.left chunk.size
+        |> Deque.toList
 
 
 deleteChunk : Chunk -> RandomRun -> RandomRun
 deleteChunk chunk run =
-    let
-        list =
-            Queue.toList run.data
-    in
     { run
         | length = run.length - chunk.size
         , data =
-            (List.take chunk.startIndex list
-                ++ List.drop (chunk.startIndex + chunk.size) list
-            )
-                |> Queue.fromList
+            Deque.append
+                (Deque.left chunk.startIndex run.data)
+                (Deque.dropLeft (chunk.startIndex + chunk.size) run.data)
     }
 
 
 replaceChunkWithZero : Chunk -> RandomRun -> RandomRun
 replaceChunkWithZero chunk run =
     -- TODO maybe `replace [...] run` would be faster?
-    let
-        list =
-            Queue.toList run.data
-    in
     { run
         | data =
-            List.fastConcat
-                [ List.take chunk.startIndex list
-                , List.repeat chunk.size 0
-                , List.drop (chunk.startIndex + chunk.size) list
-                ]
-                |> Queue.fromList
+            Deque.append
+                (Deque.left chunk.startIndex run.data)
+                (Deque.append
+                    (Deque.repeat chunk.size 0)
+                    (Deque.dropLeft (chunk.startIndex + chunk.size) run.data)
+                )
     }
 
 
@@ -167,26 +157,12 @@ sortChunk chunk run =
 
 replace : List ( Int, Int ) -> RandomRun -> RandomRun
 replace values run =
-    replaceInList values run.length (Queue.toList run.data)
-
-
-{-| An optimization to not do Queue.toList redundantly.
-
-Expects `list == Queue.toList run.data`
-
--}
-replaceInList : List ( Int, Int ) -> Int -> List Int -> RandomRun
-replaceInList values len list =
-    { length = len
-    , data =
-        List.foldl
-            (\( index, newValue ) accList ->
-                List.setAt index newValue accList
-            )
-            list
-            values
-            |> Queue.fromList
-    }
+    List.foldl
+        (\( index, newValue ) accRun ->
+            set index newValue accRun
+        )
+        run
+        values
 
 
 swapIfOutOfOrder :
@@ -199,20 +175,15 @@ swapIfOutOfOrder :
             , newRightValue : Int
             }
 swapIfOutOfOrder { leftIndex, rightIndex } run =
-    let
-        list =
-            Queue.toList run.data
-    in
     Maybe.map2
         (\left right ->
             if left > right then
                 { newRun =
-                    replaceInList
+                    replace
                         [ ( leftIndex, right )
                         , ( rightIndex, left )
                         ]
-                        run.length
-                        list
+                        run
                 , newLeftValue = right
                 , newRightValue = left
                 }
@@ -223,25 +194,26 @@ swapIfOutOfOrder { leftIndex, rightIndex } run =
                 , newRightValue = right
                 }
         )
-        (List.getAt leftIndex list)
-        (List.getAt rightIndex list)
+        (get leftIndex run)
+        (get rightIndex run)
 
 
 get : Int -> RandomRun -> Maybe Int
 get index run =
     run.data
-        |> Queue.toList
-        |> List.getAt index
+        |> Deque.dropLeft index
+        |> Deque.first
 
 
 set : Int -> Int -> RandomRun -> RandomRun
 set index value run =
     { run
         | data =
-            run.data
-                |> Queue.toList
-                |> List.setAt index value
-                |> Queue.fromList
+            Deque.append
+                (Deque.left index run.data
+                    |> Deque.pushBack value
+                )
+                (Deque.dropLeft (index + 1) run.data)
     }
 
 
@@ -259,7 +231,7 @@ compare a b =
 
 toList : RandomRun -> List Int
 toList run =
-    Queue.toList run.data
+    Deque.toList run.data
 
 
 update : Int -> (Int -> Int) -> RandomRun -> RandomRun

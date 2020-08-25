@@ -82,5 +82,5 @@ main =
                 , ( Name "elm-explorations" "test", [ Version 1 2 2] )
                 , ( Name "elm-explorations" "webgl", [ Version 1 1 2] )
                 , ( Name "jinjor" "elm-diff", [ Version 1 0 6] )
-                , ( Name "turboMaCk" "queue", [ Version 1 0 2] )
+                , ( Name "Skinney" "elm-deque", [ Version 1 2 0] )
                 ]

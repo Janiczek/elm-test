@@ -70,6 +70,7 @@ main =
         PackageRegistry 0 $
             fromList
                 [ ( Name "elm" "browser", [ Version 1 0 2] )
+                , ( Name "elm" "bytes", [ Version 1 0 8 ] )
                 , ( Name "elm" "core", [ Version 1 0 5 ] )
                 , ( Name "elm" "html", [ Version 1 0 0] )
                 , ( Name "elm" "json", [ Version 1 1 3] )

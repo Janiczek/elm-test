@@ -1,8 +1,10 @@
 module Fuzz.Float exposing (fractionalFloat, wellShrinkingFloat)
 
 import Bitwise
+import Bytes exposing (Endianness(..))
+import Bytes.Decode
+import Bytes.Encode
 import Dict exposing (Dict)
-import Elm.Kernel.Float
 import MicroBitwiseExtra as Bitwise
 
 
@@ -15,7 +17,13 @@ JavaScript exposes a way to do the memory cast natively.
 -}
 fromBytes : ( Int, Int ) -> Float
 fromBytes ( hi, lo ) =
-    Elm.Kernel.Float.fromBytes hi lo
+    Bytes.Encode.sequence
+        [ Bytes.Encode.unsignedInt32 BE hi
+        , Bytes.Encode.unsignedInt32 BE lo
+        ]
+        |> Bytes.Encode.encode
+        |> Bytes.Decode.decode (Bytes.Decode.float64 BE)
+        |> Maybe.withDefault (0 / 0)
 
 
 {-| Converts the two 32bit integers to a float 0..1 (never reaching 1).

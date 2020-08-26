@@ -316,13 +316,13 @@ fuzzerSpecificationTests =
                 , cannotGenerateSatisfying "any Infinity" Fuzz.percentage isInfinite
                 , cannotGenerateSatisfying "NaN" Fuzz.percentage isNaN
                 , simplifiesTowards "simplest" 0 Fuzz.percentage fullySimplify
-                , simplifiesTowards "non-zero" 1.1368683793337427e-13 Fuzz.percentage (\v -> v == 0)
+                , simplifiesTowards "non-zero" 2.2204460492503136e-16 Fuzz.percentage (\v -> v == 0)
                 , simplifiesTowards "non-zero non-one, specific threshold #1"
                     0.25
                     Fuzz.percentage
                     (\v -> v == 1 || v < 0.25)
                 , simplifiesTowards "non-zero non-one, specific threshold #2"
-                    0.2500000004656613
+                    0.25000000000000006
                     Fuzz.percentage
                     (\v -> v == 1 || v <= 0.25)
                 ]
@@ -630,7 +630,7 @@ fuzzerSpecificationTests =
                     -- TODO ~janiczek: hmmm... should prefer simple fractions first...
                     0.5
                     Fuzz.float
-                    (\x -> x - toFloat (truncate x) == 0)
+                    (\x -> String.toInt (String.fromFloat x) /= Nothing)
                 , simplifiesTowards "simplest negative" -1 Fuzz.float (\x -> x >= 0)
                 ]
             , describe "floatRange"
@@ -641,15 +641,15 @@ fuzzerSpecificationTests =
                     (Fuzz.floatRange -5 5)
                     (\n -> n < -5 && n > 5)
                 , simplifiesTowards "(-,+) simplest" 0 (Fuzz.floatRange -5 5) fullySimplify
-                , simplifiesTowards "(-,+) non-zero" 5.684341896668713e-13 (Fuzz.floatRange -5 5) (\n -> n == 0)
+                , simplifiesTowards "(-,+) non-zero" 1.1102230246251567e-15 (Fuzz.floatRange -5 5) (\n -> n == 0)
                 , simplifiesTowards "(0,+) simplest" 0 (Fuzz.floatRange 0 5) fullySimplify
-                , simplifiesTowards "(0,+) non-zero" 5.684341896668713e-13 (Fuzz.floatRange 0 5) (\n -> n == 0)
+                , simplifiesTowards "(0,+) non-zero" 1.1102230246251567e-15 (Fuzz.floatRange 0 5) (\n -> n == 0)
                 , simplifiesTowards "(+,+) simplest" 1 (Fuzz.floatRange 1 5) fullySimplify
-                , simplifiesTowards "(+,+) non-low" 1.0000000000004547 (Fuzz.floatRange 1 5) (\n -> n == 1)
+                , simplifiesTowards "(+,+) non-low" 1.0000000000000009 (Fuzz.floatRange 1 5) (\n -> n == 1)
                 , simplifiesTowards "(-,0) simplest" 0 (Fuzz.floatRange -5 0) fullySimplify
-                , simplifiesTowards "(-,0) non-zero" -5.684341896668713e-13 (Fuzz.floatRange -5 0) (\n -> n == 0)
+                , simplifiesTowards "(-,0) non-zero" -1.1102230246251567e-15 (Fuzz.floatRange -5 0) (\n -> n == 0)
                 , simplifiesTowards "(-,-) simplest" -1 (Fuzz.floatRange -5 -1) fullySimplify
-                , simplifiesTowards "(-,-) non-high" -1.0000000000004547 (Fuzz.floatRange -5 -1) (\n -> n == -1)
+                , simplifiesTowards "(-,-) non-high" -1.0000000000000009 (Fuzz.floatRange -5 -1) (\n -> n == -1)
                 , rejects "min > max"
                     (Fuzz.floatRange 5 -5)
                     "Fuzz.floatRange was given a lower bound of 5 which is greater than the upper bound, -5."

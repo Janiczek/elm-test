@@ -2,6 +2,8 @@ module ShrinkingChallengeTests exposing (shrinkingChallenges)
 
 import Expect exposing (Expectation)
 import Fuzz exposing (..)
+import Helpers exposing (..)
+import Set
 import Test exposing (..)
 
 

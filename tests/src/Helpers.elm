@@ -1,9 +1,31 @@
-module Helpers exposing (different, expectPass, expectSimplifiesTo, expectTestToFail, expectToFail, randomSeedFuzzer, same, succeeded, testFailing, testSimplifying, testStringLengthIsPreserved)
+module Helpers exposing
+    ( canGenerate
+    , canGenerateSatisfying
+    , canGenerateWith
+    , cannotGenerateSatisfying
+    , different
+    , doesNotReject
+    , expectPass
+    , expectSimplifiesTo
+    , expectTestToFail
+    , expectToFail
+    , passes
+    , randomSeedFuzzer
+    , rejects
+    , same
+    , simplifiesTowards
+    , simplifiesTowardsWith
+    , succeeded
+    , testFailing
+    , testSimplifying
+    , testStringLengthIsPreserved
+    )
 
 import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer)
 import Random
-import Test exposing (Test)
+import Set
+import Test exposing (Test, fuzz)
 import Test.Runner exposing (Runner, SeededRunners)
 import Test.Runner.Failure exposing (Reason(..))
 
@@ -33,7 +55,7 @@ testSimplifying runs test =
                         Err <| "Got simplified value " ++ g ++ " but expected " ++ description
 
         seed =
-            Random.initialSeed 99
+            Random.initialSeed 2242652938
     in
     test
         |> Test.Runner.fromTest runs seed
@@ -66,7 +88,7 @@ testFailing test =
                     Ok ()
 
         seed =
-            Random.initialSeed 99
+            Random.initialSeed 2242652938
     in
     test
         |> Test.Runner.fromTest 1000 seed
@@ -114,7 +136,7 @@ expectTestToFail : Test -> Expectation
 expectTestToFail test =
     let
         seed =
-            Random.initialSeed 99
+            Random.initialSeed 2242652938
     in
     test
         |> Test.Runner.fromTest 100 seed
@@ -217,3 +239,86 @@ different a b =
             [ reasonA, reasonB ]
                 |> Expect.equal []
                 |> Expect.onFail "expected only one argument to fail"
+
+
+passes : String -> Fuzzer a -> (a -> Bool) -> Test
+passes label fuzzer fn =
+    fuzz fuzzer label (fn >> Expect.equal True)
+
+
+canGenerateSatisfying : String -> Fuzzer a -> (a -> Bool) -> Test
+canGenerateSatisfying label fuzzer fn =
+    testFailing <|
+        fuzz fuzzer
+            ("Can generate satisfying: " ++ label)
+            (\fuzzedValue ->
+                (not <| fn fuzzedValue)
+                    |> Expect.equal True
+            )
+
+
+cannotGenerateSatisfying : String -> Fuzzer a -> (a -> Bool) -> Test
+cannotGenerateSatisfying label fuzzer fn =
+    passes ("Cannot generate satisfying: " ++ label)
+        fuzzer
+        (not << fn)
+
+
+canGenerate : a -> Fuzzer a -> Test
+canGenerate =
+    canGenerateWith { runs = 100 }
+
+
+canGenerateWith : { runs : Int } -> a -> Fuzzer a -> Test
+canGenerateWith { runs } value fuzzer =
+    let
+        valueString =
+            Debug.toString value
+    in
+    testSimplifying runs <|
+        fuzz fuzzer
+            ("Can generate " ++ valueString)
+            (\fuzzedValue ->
+                (fuzzedValue /= value)
+                    |> expectSimplifiesTo valueString
+            )
+
+
+simplifiesTowards : String -> a -> Fuzzer a -> (a -> Bool) -> Test
+simplifiesTowards =
+    simplifiesTowardsWith { runs = 100 }
+
+
+simplifiesTowardsWith : { runs : Int } -> String -> a -> Fuzzer a -> (a -> Bool) -> Test
+simplifiesTowardsWith { runs } label value fuzzer fn =
+    let
+        valueString =
+            Debug.toString value
+    in
+    testSimplifying runs <|
+        fuzz fuzzer
+            ("[" ++ label ++ "] Simplifies towards " ++ valueString)
+            (\fuzzedValue ->
+                fn fuzzedValue
+                    |> expectSimplifiesTo valueString
+            )
+
+
+rejects : String -> Fuzzer a -> String -> Test
+rejects label fuzzer expectedReason =
+    fuzz randomSeedFuzzer ("Rejects: " ++ label) <|
+        \seed ->
+            case Random.step (Test.Runner.fuzz fuzzer) seed of
+                ( Err reason, _ ) ->
+                    reason
+                        |> Expect.equal expectedReason
+
+                _ ->
+                    Expect.fail "Fuzzer generated a value instead of being marked as invalid"
+
+
+doesNotReject : String -> Fuzzer a -> Test
+doesNotReject label fuzzer =
+    passes ("Does not reject: " ++ label)
+        fuzzer
+        (\_ -> True)

@@ -76,10 +76,6 @@ types that contain a boolean somewhere.
 We recommend against writing tests fuzzing over booleans. Write a unit test for
 the true and false cases explicitly.
 
-TODO ~janiczek: I'm not sure I even agree with this ^. What if you want to
-fuzz-test some invariant over the whole "input space" of a function, and you
-don't care what the boolean argument is?
-
 Simplifies in order `False < True`.
 
 -}
@@ -163,10 +159,19 @@ intRange lo hi =
             ]
 
 
-{-| A fuzzer for float values. It will never produce `NaN`, `Infinity`, or `-Infinity`.
+{-| A fuzzer for float values. It will never produce `NaN`, `Infinity`, or
+`-Infinity`.
 -}
 float : Fuzzer Float
 float =
+    wellShrinkingFloat
+
+
+{-| This float fuzzer will prefer non-fractional floats and (if it must) nice
+fractions.
+-}
+wellShrinkingFloat : Fuzzer Float
+wellShrinkingFloat =
     map3
         (\hi lo shouldNegate ->
             let
@@ -228,7 +233,8 @@ floatRange lo hi =
             ]
 
 
-{-| TODO ~janiczek: This won't shrink nicely? Can we make it do so?
+{-| This float fuzzer won't shrink nicely (to integers or nice fractions). For
+that, use `wellShrinkingFloat`.
 -}
 scaledFloat : Float -> Float -> Fuzzer Float
 scaledFloat lo hi =
@@ -649,12 +655,6 @@ frequency fuzzers =
 
 frequencyHelp : String -> List ( Float, Fuzzer a ) -> Fuzzer a
 frequencyHelp functionName fuzzers =
-    {- TODO might cumulative form be better for performance than this countdown
-       style? Python stdlib does it this way.
-
-       TODO also, Hypothesis does Vali's alias method instead -- supposedly it has
-       some initialization cost but then is faster during actual generation?
-    -}
     if List.any (\( w, _ ) -> w < 0) fuzzers then
         invalid <| functionName ++ ": No frequency weights can be less than 0."
 

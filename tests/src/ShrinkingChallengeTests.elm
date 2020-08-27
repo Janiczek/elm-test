@@ -64,10 +64,79 @@ bound5 =
 -}
 calculator : Test
 calculator =
-    -- Given: AST = Int Int | Add AST AST | Div AST AST
-    -- Property: if no subterms are `Div _ 0`, evaluating the expression will not trigger zero division error
-    -- Shrinks towards: Div (Int 0) (Add 0 0)
-    todo "calculator"
+    let
+        exprFuzzer : Int -> Fuzzer CalcExpr
+        exprFuzzer maxDepth =
+            if maxDepth <= 0 then
+                Fuzz.map Int Fuzz.int
+
+            else
+                Fuzz.lazy
+                    (\() ->
+                        let
+                            subExprFuzzer =
+                                exprFuzzer (maxDepth - 1)
+                        in
+                        Fuzz.oneOf
+                            [ Fuzz.map Int Fuzz.int
+                            , Fuzz.map2 Add subExprFuzzer subExprFuzzer
+                            , Fuzz.map2 Div subExprFuzzer subExprFuzzer
+                            ]
+                    )
+
+        noDivisionByLiteralZero : CalcExpr -> Bool
+        noDivisionByLiteralZero expr =
+            case expr of
+                Div _ (Int 0) ->
+                    False
+
+                Int _ ->
+                    True
+
+                Add a b ->
+                    noDivisionByLiteralZero a
+                        && noDivisionByLiteralZero b
+
+                Div a b ->
+                    noDivisionByLiteralZero a
+                        && noDivisionByLiteralZero b
+
+        eval : CalcExpr -> Maybe Int
+        eval expr =
+            case expr of
+                Int i ->
+                    Just i
+
+                Add a b ->
+                    Maybe.map2 (+)
+                        (eval a)
+                        (eval b)
+
+                Div a b ->
+                    Maybe.map2
+                        (\a_ b_ ->
+                            if b_ == 0 then
+                                Nothing
+
+                            else
+                                Just <| a_ // b_
+                        )
+                        (eval a)
+                        (eval b)
+                        |> Maybe.andThen identity
+    in
+    only <|
+        simplifiesTowards
+            "calculator"
+            (Div (Int 0) (Add (Int 0) (Int 0)))
+            (exprFuzzer 5 |> Fuzz.filter noDivisionByLiteralZero)
+            (\expr -> eval expr /= Nothing)
+
+
+type CalcExpr
+    = Int Int
+    | Add CalcExpr CalcExpr
+    | Div CalcExpr CalcExpr
 
 
 {-| <https://github.com/jlink/shrinking-challenge/blob/836bafa664659a435ae186eed5b87e941228ae3d/challenges/lengthlist.md>

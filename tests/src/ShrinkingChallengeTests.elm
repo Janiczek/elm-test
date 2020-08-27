@@ -113,18 +113,15 @@ calculator =
                 Fuzz.map Int Fuzz.int
 
             else
-                Fuzz.lazy
-                    (\() ->
-                        let
-                            subExprFuzzer =
-                                exprFuzzer (maxDepth - 1)
-                        in
-                        Fuzz.oneOf
-                            [ Fuzz.map Int Fuzz.int
-                            , Fuzz.map2 Add subExprFuzzer subExprFuzzer
-                            , Fuzz.map2 Div subExprFuzzer subExprFuzzer
-                            ]
-                    )
+                let
+                    subExprFuzzer =
+                        exprFuzzer (maxDepth - 1)
+                in
+                Fuzz.oneOf
+                    [ Fuzz.map Int Fuzz.int
+                    , Fuzz.map2 Add subExprFuzzer subExprFuzzer
+                    , Fuzz.map2 Div subExprFuzzer subExprFuzzer
+                    ]
 
         noDivisionByLiteralZero : CalcExpr -> Bool
         noDivisionByLiteralZero expr =

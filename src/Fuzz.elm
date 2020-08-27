@@ -1,6 +1,6 @@
 module Fuzz exposing
     ( int, intRange, float, floatRange, percentage, string, bool, maybe, result, list, listOfLength, listOfLengthBetween, array
-    , Fuzzer, oneOf, oneOfValues, constant, map, map2, map3, map4, map5, andMap, frequency, frequencyValues, andThen, lazy, filter
+    , Fuzzer, oneOf, oneOfValues, constant, map, map2, map3, map4, map5, andMap, frequency, frequencyValues, andThen, filter
     , pair, triple
     , char, unit, order, invalid, weightedBool
     )
@@ -23,7 +23,7 @@ can usually find the simplest input that reproduces a bug.
 
 ## Working with Fuzzers
 
-@docs Fuzzer, oneOf, oneOfValues, constant, map, map2, map3, map4, map5, andMap, frequency, frequencyValues, andThen, lazy, filter
+@docs Fuzzer, oneOf, oneOfValues, constant, map, map2, map3, map4, map5, andMap, frequency, frequencyValues, andThen, filter
 
 
 ## Tuple Fuzzers
@@ -346,14 +346,16 @@ list fuzzer =
     listOfLengthBetween 0 100 fuzzer
 
 
-{-| TODO docs
+{-| Given a fuzzer of a type, create a fuzzer of a list of that type.
+Generates random lists of exactly the specified length.
 -}
 listOfLength : Int -> Fuzzer a -> Fuzzer (List a)
 listOfLength n fuzzer =
     listOfLengthBetween n n fuzzer
 
 
-{-| TODO docs
+{-| Given a fuzzer of a type, create a fuzzer of a list of that type.
+Generates random lists of length between the two given integers.
 -}
 listOfLengthBetween : Int -> Int -> Fuzzer a -> Fuzzer (List a)
 listOfLengthBetween lo hi itemFuzzer =
@@ -423,10 +425,6 @@ array fuzzer =
 
 
 {-| Turn a pair of fuzzers into a fuzzer of pairs.
-
-TODO ~janiczek: if we're making a major release, what about
-pair : Fuzzer a -> Fuzzer b -> Fuzzer ( a, b )
-
 -}
 pair : ( Fuzzer a, Fuzzer b ) -> Fuzzer ( a, b )
 pair ( fuzzerA, fuzzerB ) =
@@ -434,10 +432,6 @@ pair ( fuzzerA, fuzzerB ) =
 
 
 {-| Turn a triple of fuzzers into a fuzzer of triples.
-
-TODO ~janiczek: if we're making a major release, what about
-triple : Fuzzer a -> Fuzzer b -> Fuzzer c -> Fuzzer ( a, b, c )
-
 -}
 triple : ( Fuzzer a, Fuzzer b, Fuzzer c ) -> Fuzzer ( a, b, c )
 triple ( fuzzerA, fuzzerB, fuzzerC ) =
@@ -824,7 +818,14 @@ invalid reason =
                 }
 
 
-{-| TODO comment
+{-| A fuzzer that only lets through values satisfying the given predicate
+function.
+
+Note that it's often better to get to your wanted values using [`map`](#map), as
+you don't run the risk of rejecting too may values and slowing down your tests,
+for example using `Fuzz.int 0 5 |> Fuzz.map (\x -> x * 2)` instead of
+`Fuzz.int 0 9 |> Fuzz.filter (\x -> modBy 2 x == 0)`.
+
 -}
 filter : (a -> Bool) -> Fuzzer a -> Fuzzer a
 filter predicate fuzzer =
@@ -840,7 +841,35 @@ filter predicate fuzzer =
             )
 
 
-{-| TODO comment
+{-| Use a generated value to decide what fuzzer to use next.
+
+For example, let's say you want to generate a list of given length.
+One possible way to do that is first choosing how many elements will there be
+(generating a number), `andThen` generating a list with that many items:
+
+    Fuzz.int 1 10
+        |> Fuzz.andThen
+            (\length ->
+                let
+                    go : Int -> List a -> Fuzzer (List a)
+                    go todo acc =
+                        if todo <= 0 then
+                            constant (List.reverse acc)
+
+                        else
+                            itemFuzzer
+                                |> Fuzz.andThen (\item -> go (length - 1) (item :: acc))
+                in
+                go length []
+            )
+
+(By the way, it will probably be better to just use one of the [`list`](#list)
+helpers in this module.)
+
+Think of it as a generalization of [`map`](#map). Inside [`map`](#map) you don't
+have the option to fuzz another value based on what you already have; inside
+`andThen` you do.
+
 -}
 andThen : (a -> Fuzzer b) -> Fuzzer a -> Fuzzer b
 andThen fn (Fuzzer fuzzer) =
@@ -856,19 +885,6 @@ andThen fn (Fuzzer fuzzer) =
 
                 Rejected r ->
                     Rejected r
-
-
-{-| TODO comment
--}
-lazy : (() -> Fuzzer a) -> Fuzzer a
-lazy thunk =
-    Fuzzer <|
-        \prng ->
-            let
-                (Fuzzer fuzzer) =
-                    thunk ()
-            in
-            fuzzer prng
 
 
 {-| Will simplify towards 0.

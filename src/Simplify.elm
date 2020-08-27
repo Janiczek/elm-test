@@ -147,27 +147,25 @@ deleteChunkAndMaybeDecrementPrevious chunk state =
         let
             runWithDelete : RandomRun
             runWithDelete =
-                RandomRun.deleteChunk chunk state.randomRun
+                state.randomRun
+                    |> RandomRun.deleteChunk chunk
 
-            afterDelete =
-                keepIfStillFails runWithDelete state
+            runWithDeleteAndDecrement : RandomRun
+            runWithDeleteAndDecrement =
+                runWithDelete
+                    |> RandomRun.update (chunk.startIndex - 1) (\x -> x - 1)
+
+            afterDeleteAndDecrement =
+                keepIfStillFails runWithDeleteAndDecrement state
         in
-        if afterDelete.stillFails then
-            {- Try reducing the number before this removed chunk, it's frequently
-               the length parameter.
-            -}
-            let
-                runWithDecrement : RandomRun
-                runWithDecrement =
-                    runWithDelete
-                        |> RandomRun.update (chunk.startIndex - 1) (\x -> x - 1)
-
-                afterDecrement =
-                    keepIfStillFails runWithDecrement afterDelete.newState
-            in
-            afterDecrement.newState
+        if afterDeleteAndDecrement.stillFails then
+            afterDeleteAndDecrement.newState
 
         else
+            let
+                afterDelete =
+                    keepIfStillFails runWithDelete state
+            in
             afterDelete.newState
 
     else

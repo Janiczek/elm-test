@@ -83,7 +83,7 @@ redistributeCmds length =
                                 }
                         )
     in
-    forOffset 2 ++ forOffset 1
+    forOffset 3 ++ forOffset 2 ++ forOffset 1
 
 
 {-| Will generate SimplifyCmds for all chunks of sizes 1,2,4,8 in bounds of the

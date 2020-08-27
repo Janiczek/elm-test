@@ -14,6 +14,8 @@ module Helpers exposing
     , rejects
     , same
     , simplifiesTowards
+    , simplifiesTowardsMany
+    , simplifiesTowardsManyWith
     , simplifiesTowardsWith
     , succeeded
     , testFailing
@@ -53,7 +55,7 @@ testSimplifying runs test =
                         |> Err
 
                 Just g ->
-                    if g == description then
+                    if String.contains g description then
                         Ok ()
 
                     else
@@ -306,6 +308,28 @@ simplifiesTowardsWith { runs } label value fuzzer fn =
             (\fuzzedValue ->
                 fn fuzzedValue
                     |> expectSimplifiesTo valueString
+            )
+
+
+simplifiesTowardsMany : String -> List a -> Fuzzer a -> (a -> Bool) -> Test
+simplifiesTowardsMany =
+    simplifiesTowardsManyWith { runs = 100 }
+
+
+simplifiesTowardsManyWith : { runs : Int } -> String -> List a -> Fuzzer a -> (a -> Bool) -> Test
+simplifiesTowardsManyWith { runs } label values fuzzer fn =
+    let
+        valuesString =
+            values
+                |> List.map Debug.toString
+                |> String.join "|"
+    in
+    testSimplifying runs <|
+        fuzz fuzzer
+            ("[" ++ label ++ "] Simplifies towards one of " ++ valuesString)
+            (\fuzzedValue ->
+                fn fuzzedValue
+                    |> expectSimplifiesTo valuesString
             )
 
 

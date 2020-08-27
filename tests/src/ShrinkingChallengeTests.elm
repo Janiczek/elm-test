@@ -3,6 +3,7 @@ module ShrinkingChallengeTests exposing (shrinkingChallenges)
 import Expect exposing (Expectation)
 import Fuzz exposing (..)
 import Helpers exposing (..)
+import Random
 import Set
 import Test exposing (..)
 
@@ -43,21 +44,62 @@ reverse =
 -}
 largeUnionList : Test
 largeUnionList =
-    simplifiesTowards
+    simplifiesTowardsMany
         "large union list"
-        [ [ 0, 1, 2, 3, 4 ] ]
+        [ [ [ 0, 1, 2, 3, 4 ] ]
+        , [ [ 2, -1, -2, 0, 1 ] ]
+        ]
         (Fuzz.list (Fuzz.list Fuzz.int))
         (\lists -> Set.size (Set.fromList (List.concat lists)) <= 4)
 
 
 {-| <https://github.com/jlink/shrinking-challenge/blob/836bafa664659a435ae186eed5b87e941228ae3d/challenges/bound5.md>
+
+Elm doesn't have 16bit integers. We'll have to emulate that a little.
+
+Here's an example:
+<https://www.mathworks.com/matlabcentral/answers/355611-is-there-a-way-to-do-signed-16-bit-integer-math>
+
 -}
 bound5 : Test
 bound5 =
-    -- Given: 5-tuple of 16bit ints
-    -- Property: if each list sums to < 256, sum of all values < 5*256
-    -- Shrinks towards: ([-32768],[-1],[],[],[])
-    todo "bound5"
+    -- TODO filtering stops early when it shouldn't
+    let
+        bits =
+            16
+
+        max =
+            2 ^ bits
+
+        maxHalf =
+            max // 2
+
+        i16 : Int -> Int
+        i16 n =
+            ((n + maxHalf) |> modBy max) - maxHalf
+
+        i16Add : Int -> Int -> Int
+        i16Add a b =
+            i16 (a + b)
+
+        i16Sum : List Int -> Int
+        i16Sum ns =
+            List.foldl i16Add 0 ns
+
+        boundedList : Fuzzer (List Int)
+        boundedList =
+            Fuzz.listOfLengthBetween 0 10 (Fuzz.intRange -32768 32767)
+                |> Fuzz.filter (\list -> i16Sum list < 256)
+
+        five : Fuzzer (List (List Int))
+        five =
+            Fuzz.listOfLength 5 boundedList
+    in
+    simplifiesTowards
+        "Bound 5"
+        [ [ -32768 ], [ -1 ], [], [], [] ]
+        five
+        (\lists -> i16Sum (List.concat lists) < 5 * 256)
 
 
 {-| <https://github.com/jlink/shrinking-challenge/blob/836bafa664659a435ae186eed5b87e941228ae3d/challenges/calculator.md>
@@ -163,30 +205,54 @@ lengthList =
 -}
 difference1 : Test
 difference1 =
-    -- Given: two positive integers (x and y)
-    -- Property: x < 10 || x - y == 0
-    -- Shrinks towards: [10, 10]
-    todo "difference1"
+    -- TODO unlikely to hit
+    simplifiesTowardsWith { runs = 3000 }
+        "difference1"
+        ( 10, 10 )
+        (Fuzz.pair
+            ( Fuzz.intRange 0 Random.maxInt
+            , Fuzz.intRange 0 Random.maxInt
+            )
+        )
+        (\( x, y ) -> x < 10 || x /= y)
 
 
 {-| <https://github.com/jlink/shrinking-challenge/blob/836bafa664659a435ae186eed5b87e941228ae3d/challenges/difference.md>
 -}
 difference2 : Test
 difference2 =
-    -- Given: two positive integers (x and y)
-    -- Property: x < 10 || (x - y) is between 1 and 4
-    -- Shrinks towards: [10, 6]
-    todo "difference2"
+    -- TODO unlikely to hit
+    simplifiesTowardsWith { runs = 3000 }
+        "difference2"
+        ( 10, 6 )
+        (Fuzz.pair
+            ( Fuzz.intRange 0 Random.maxInt
+            , Fuzz.intRange 0 Random.maxInt
+            )
+        )
+        (\( x, y ) ->
+            let
+                absDiff =
+                    abs (x - y)
+            in
+            x < 10 || absDiff < 1 || absDiff > 4
+        )
 
 
 {-| <https://github.com/jlink/shrinking-challenge/blob/836bafa664659a435ae186eed5b87e941228ae3d/challenges/difference.md>
 -}
 difference3 : Test
 difference3 =
-    -- Given: two positive integers (x and y)
-    -- Property: x < 10 || x - y == 1
-    -- Shrinks towards: [10, 9]
-    todo "difference3"
+    -- TODO unlikely to hit
+    simplifiesTowardsWith { runs = 3000 }
+        "difference3"
+        ( 10, 9 )
+        (Fuzz.pair
+            ( Fuzz.intRange 0 Random.maxInt
+            , Fuzz.intRange 0 Random.maxInt
+            )
+        )
+        (\( x, y ) -> x < 10 || abs (x - y) /= 1)
 
 
 {-| <https://github.com/jlink/shrinking-challenge/blob/836bafa664659a435ae186eed5b87e941228ae3d/challenges/binheap.md>
@@ -214,37 +280,105 @@ binHeap =
 -}
 coupling : Test
 coupling =
-    -- Given: list of ints 0..10 |> filter (\l -> List.all (\i -> i < List.length l) l)
-    -- Property: for all indices i, if i != l[i] then i != l[l[i]]
-    -- Shrinks towards: [1, 0]
-    todo "coupling"
+    let
+        getAt : Int -> List a -> Maybe a
+        getAt index list =
+            if index < 0 then
+                Nothing
+
+            else
+                list
+                    |> List.drop index
+                    |> List.head
+    in
+    simplifiesTowards
+        "coupling"
+        [ 1, 0 ]
+        (Fuzz.list (Fuzz.intRange 0 10)
+            |> Fuzz.filter
+                (\l ->
+                    let
+                        length =
+                            List.length l
+                    in
+                    List.all (\i -> i < length) l
+                )
+        )
+        (\list ->
+            list
+                |> List.indexedMap
+                    (\i x ->
+                        if i /= x then
+                            getAt x list /= Just i
+
+                        else
+                            True
+                    )
+                |> List.all identity
+        )
 
 
 {-| <https://github.com/jlink/shrinking-challenge/blob/836bafa664659a435ae186eed5b87e941228ae3d/challenges/deletion.md>
 -}
 deletion : Test
 deletion =
-    -- Given: list of integers
-    -- Property: not (List.member x (List.removeFirst x list))
-    -- Shrinks towards: ([0, 0], 0)
-    todo "deletion"
+    let
+        removeFirst : a -> List a -> List a
+        removeFirst badX xs =
+            go badX xs [] xs
+
+        go : a -> List a -> List a -> List a -> List a
+        go badX next prev orig =
+            case next of
+                [] ->
+                    orig
+
+                x :: rest ->
+                    if x == badX then
+                        List.reverse prev ++ rest
+
+                    else
+                        go badX rest (x :: prev) orig
+    in
+    -- TODO unlikely to hit if ints don't prefer smaller values
+    simplifiesTowards
+        "deletion"
+        ( [ 0, 0 ], 0 )
+        (Fuzz.listOfLengthBetween 1 100 Fuzz.int
+            |> Fuzz.andThen
+                (\list ->
+                    Fuzz.pair
+                        ( Fuzz.constant list
+                        , Fuzz.oneOfValues list
+                        )
+                )
+        )
+        (\( list, el ) -> not (List.member el (removeFirst el list)))
 
 
 {-| <https://github.com/jlink/shrinking-challenge/blob/836bafa664659a435ae186eed5b87e941228ae3d/challenges/distinct.md>
 -}
 distinct : Test
 distinct =
-    -- Given: list of ints
-    -- Property: doesn't contain 3 or more distinct elements
-    -- Shrinks towards: [0, 1, 2]
-    todo "distinct"
+    -- ([1,0,0,  1,0,1,  1,0,2,  0],[0, 1, 2])
+    -- ([1,0,0,  1,0,1,  1,1,0,  0],[0, 1,-1])
+    -- ([1,0,0,  1,1,0,  1,0,1,  0],[0,-1, 1])
+    simplifiesTowardsMany
+        "distinct"
+        [ [ 0, 1, 2 ]
+        , [ 0, 1, -1 ]
+        , [ 0, -1, 1 ]
+        ]
+        (Fuzz.list Fuzz.int)
+        (\list -> Set.size (Set.fromList list) < 3)
 
 
 {-| <https://github.com/jlink/shrinking-challenge/blob/836bafa664659a435ae186eed5b87e941228ae3d/challenges/nestedlists.md>
 -}
 nestedLists : Test
 nestedLists =
-    -- Given: list of lists of ints
-    -- Property: sum of lengths <= 10
-    -- Shrinks towards: [[0,0,0,0,0,0,0,0,0,0,0]]
-    todo "nestedLists"
+    simplifiesTowards
+        "nestedLists"
+        [ [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ] ]
+        (Fuzz.list (Fuzz.list Fuzz.int))
+        (\lists -> List.sum (List.map List.length lists) <= 10)

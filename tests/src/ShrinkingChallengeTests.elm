@@ -125,12 +125,11 @@ calculator =
                         (eval b)
                         |> Maybe.andThen identity
     in
-    only <|
-        simplifiesTowards
-            "calculator"
-            (Div (Int 0) (Add (Int 0) (Int 0)))
-            (exprFuzzer 5 |> Fuzz.filter noDivisionByLiteralZero)
-            (\expr -> eval expr /= Nothing)
+    simplifiesTowards
+        "calculator"
+        (Div (Int 0) (Add (Int 0) (Int 0)))
+        (exprFuzzer 5 |> Fuzz.filter noDivisionByLiteralZero)
+        (\expr -> eval expr /= Nothing)
 
 
 type CalcExpr
@@ -143,10 +142,21 @@ type CalcExpr
 -}
 lengthList : Test
 lengthList =
-    -- Given: int 1..100 |> andThen (\len -> listOfLength len (int 0..1000))
-    -- Property: max value >= 900
-    -- Shrinks towards: [900]
-    todo "lengthList"
+    simplifiesTowards
+        "lengthList"
+        [ 900 ]
+        (Fuzz.intRange 1 100
+            |> Fuzz.andThen
+                (\len -> Fuzz.listOfLength len (Fuzz.intRange 0 1000))
+        )
+        (\list ->
+            case List.maximum list of
+                Nothing ->
+                    Debug.todo "shouldn't have generated an empty list"
+
+                Just max ->
+                    max < 900
+        )
 
 
 {-| <https://github.com/jlink/shrinking-challenge/blob/836bafa664659a435ae186eed5b87e941228ae3d/challenges/difference.md>

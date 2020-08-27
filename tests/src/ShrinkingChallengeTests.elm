@@ -380,5 +380,5 @@ nestedLists =
     simplifiesTowards
         "nestedLists"
         [ [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ] ]
-        (Fuzz.list (Fuzz.list Fuzz.int))
+        (Fuzz.listOfLengthBetween 0 20 (Fuzz.listOfLengthBetween 0 20 Fuzz.int))
         (\lists -> List.sum (List.map List.length lists) <= 10)

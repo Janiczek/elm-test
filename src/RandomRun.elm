@@ -11,6 +11,7 @@ module RandomRun exposing
     , isFull
     , isInBounds
     , length
+    , maxLength
     , nextChoice
     , replace
     , replaceChunkWithZero
@@ -109,60 +110,80 @@ length run =
     run.length
 
 
-getChunk : Chunk -> RandomRun -> List Int
+getChunk : Chunk -> RandomRun -> Maybe (List Int)
 getChunk chunk run =
-    run.data
-        |> Queue.toList
-        |> List.drop chunk.startIndex
-        |> List.take chunk.size
+    if isInBounds chunk run then
+        run.data
+            |> Queue.toList
+            |> List.drop chunk.startIndex
+            |> List.take chunk.size
+            |> Just
+
+    else
+        Nothing
 
 
 deleteChunk : Chunk -> RandomRun -> RandomRun
 deleteChunk chunk run =
-    let
-        list =
-            Queue.toList run.data
-    in
-    { run
-        | length = run.length - chunk.size
-        , data =
-            (List.take chunk.startIndex list
-                ++ List.drop (chunk.startIndex + chunk.size) list
-            )
-                |> Queue.fromList
-    }
+    if isInBounds chunk run then
+        let
+            list =
+                Queue.toList run.data
+
+            result =
+                { run
+                    | length = run.length - chunk.size
+                    , data =
+                        (List.take chunk.startIndex list
+                            ++ List.drop (chunk.startIndex + chunk.size) list
+                        )
+                            |> Queue.fromList
+                }
+        in
+        result
+
+    else
+        run
 
 
 replaceChunkWithZero : Chunk -> RandomRun -> RandomRun
 replaceChunkWithZero chunk run =
-    -- TODO maybe `replace [...] run` would be faster?
-    let
-        list =
-            Queue.toList run.data
-    in
-    { run
-        | data =
-            List.fastConcat
-                [ List.take chunk.startIndex list
-                , List.repeat chunk.size 0
-                , List.drop (chunk.startIndex + chunk.size) list
-                ]
-                |> Queue.fromList
-    }
+    if isInBounds chunk run then
+        -- TODO maybe `replace [...] run` would be faster?
+        let
+            list =
+                Queue.toList run.data
+        in
+        { run
+            | data =
+                List.fastConcat
+                    [ List.take chunk.startIndex list
+                    , List.repeat chunk.size 0
+                    , List.drop (chunk.startIndex + chunk.size) list
+                    ]
+                    |> Queue.fromList
+        }
+
+    else
+        run
 
 
 sortChunk : Chunk -> RandomRun -> RandomRun
 sortChunk chunk run =
-    let
-        sortedIndexed : List ( Int, Int )
-        sortedIndexed =
+    case getChunk chunk run of
+        Nothing ->
             run
-                |> getChunk chunk
-                |> List.sort
-                |> List.indexedMap
-                    (\i value -> ( chunk.startIndex + i, value ))
-    in
-    replace sortedIndexed run
+
+        Just chunkData ->
+            let
+                sortedIndexed : List ( Int, Int )
+                sortedIndexed =
+                    chunkData
+                        |> List.sort
+                        |> List.indexedMap
+                            (\i value -> ( chunk.startIndex + i, value ))
+            in
+            replace sortedIndexed run
 
 
 replace : List ( Int, Int ) -> RandomRun -> RandomRun
@@ -173,6 +194,7 @@ replace values run =
 {-| An optimization to not do Queue.toList redundantly.
 
 Expects `list == Queue.toList run.data`
+and `len == Queue.size run.data`
 
 -}
 replaceInList : List ( Int, Int ) -> Int -> List Int -> RandomRun
@@ -181,7 +203,11 @@ replaceInList values len list =
     , data =
         List.foldl
             (\( index, newValue ) accList ->
-                List.setAt index newValue accList
+                if newValue < 0 then
+                    accList
+
+                else
+                    List.setAt index newValue len accList
             )
             list
             values
@@ -236,13 +262,17 @@ get index run =
 
 set : Int -> Int -> RandomRun -> RandomRun
 set index value run =
-    { run
-        | data =
-            run.data
-                |> Queue.toList
-                |> List.setAt index value
-                |> Queue.fromList
-    }
+    if run.length <= index then
+        run
+
+    else
+        { run
+            | data =
+                run.data
+                    |> Queue.toList
+                    |> List.setAt index value run.length
+                    |> Queue.fromList
+        }
 
 
 sortKey : RandomRun -> ( Int, List Int )
@@ -269,15 +299,7 @@ update index fn run =
             run
 
         Just value ->
-            let
-                newValue =
-                    fn value
-            in
-            if newValue < 0 then
-                run
-
-            else
-                replace [ ( index, fn value ) ] run
+            replace [ ( index, fn value ) ] run
 
 
 equal : RandomRun -> RandomRun -> Bool

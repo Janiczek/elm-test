@@ -63,7 +63,7 @@ simplifyOnce : State a -> State a
 simplifyOnce state =
     runCmds
         (Simplify.Cmd.cmdsForRun state.randomRun
-         -- |> Debug.log "[SIMPLIFY] cmds"
+         --|> Debug.log "[SIMPLIFY] cmds"
         )
         state
 
@@ -71,6 +71,27 @@ simplifyOnce state =
 runCmds : List SimplifyCmd -> State a -> State a
 runCmds cmds state =
     List.foldl runCmd state cmds
+
+
+logRun : String -> RandomRun -> RandomRun
+logRun label run =
+    let
+        _ =
+            Debug.log label
+                ( RandomRun.toList run
+                , RandomRun.length run
+                )
+    in
+    run
+
+
+logState : String -> State a -> State a
+logState label state =
+    let
+        _ =
+            logRun label state.randomRun
+    in
+    state
 
 
 runCmd : SimplifyCmd -> State a -> State a
@@ -143,134 +164,100 @@ keepIfStillFails newRandomRun state =
 
 deleteChunkAndMaybeDecrementPrevious : Chunk -> State a -> State a
 deleteChunkAndMaybeDecrementPrevious chunk state =
-    if RandomRun.isInBounds chunk state.randomRun then
-        let
-            runWithDelete : RandomRun
-            runWithDelete =
-                state.randomRun
-                    |> RandomRun.deleteChunk chunk
+    let
+        runWithDelete : RandomRun
+        runWithDelete =
+            state.randomRun
+                |> RandomRun.deleteChunk chunk
 
-            runWithDeleteAndDecrement : RandomRun
-            runWithDeleteAndDecrement =
-                runWithDelete
-                    |> RandomRun.update (chunk.startIndex - 1) (\x -> x - 1)
+        runWithDeleteAndDecrement : RandomRun
+        runWithDeleteAndDecrement =
+            runWithDelete
+                |> RandomRun.update (chunk.startIndex - 1) (\x -> x - 1)
 
-            afterDeleteAndDecrement =
-                keepIfStillFails runWithDeleteAndDecrement state
-        in
-        if afterDeleteAndDecrement.stillFails then
-            afterDeleteAndDecrement.newState
-
-        else
-            let
-                afterDelete =
-                    keepIfStillFails runWithDelete state
-            in
-            afterDelete.newState
+        afterDeleteAndDecrement =
+            keepIfStillFails runWithDeleteAndDecrement state
+    in
+    if afterDeleteAndDecrement.stillFails then
+        afterDeleteAndDecrement.newState
 
     else
-        state
+        let
+            afterDelete =
+                keepIfStillFails runWithDelete state
+        in
+        afterDelete.newState
 
 
 replaceChunkWithZero : Chunk -> State a -> State a
 replaceChunkWithZero chunk state =
-    if RandomRun.isInBounds chunk state.randomRun then
-        let
-            simplifiedRun : RandomRun
-            simplifiedRun =
-                RandomRun.replaceChunkWithZero chunk state.randomRun
+    let
+        simplifiedRun : RandomRun
+        simplifiedRun =
+            RandomRun.replaceChunkWithZero chunk state.randomRun
 
-            { newState } =
-                keepIfStillFails simplifiedRun state
-        in
-        newState
-
-    else
-        state
+        { newState } =
+            keepIfStillFails simplifiedRun state
+    in
+    newState
 
 
 sortChunk : Chunk -> State a -> State a
 sortChunk chunk state =
-    if RandomRun.isInBounds chunk state.randomRun then
-        let
-            simplifiedRun : RandomRun
-            simplifiedRun =
-                RandomRun.sortChunk chunk state.randomRun
-
-            { newState } =
-                keepIfStillFails simplifiedRun state
-        in
-        newState
-
-    else
-        state
+    let
+        simplifiedRun : RandomRun
+        simplifiedRun =
+            RandomRun.sortChunk chunk state.randomRun
+    in
+    keepIfStillFails simplifiedRun state
+        |> .newState
 
 
 minimizeChoice : { index : Int } -> State a -> State a
 minimizeChoice { index } state =
-    if
-        RandomRun.isInBounds
-            { startIndex = index
-            , size = 1
-            }
-            state.randomRun
-    then
-        case RandomRun.get index state.randomRun of
-            Nothing ->
-                state
+    case RandomRun.get index state.randomRun of
+        Nothing ->
+            state
 
-            Just value ->
-                binarySearchShrink
-                    { low = 0
-                    , high = value
-                    , state = state
-                    , updateRun =
-                        \value_ accRun ->
-                            RandomRun.set index value_ accRun
-                    }
-
-    else
-        state
+        Just value ->
+            binarySearchShrink
+                { low = 0
+                , high = value
+                , state = state
+                , updateRun =
+                    \value_ accRun ->
+                        RandomRun.set index value_ accRun
+                }
 
 
 redistribute : { leftIndex : Int, rightIndex : Int } -> State a -> State a
 redistribute options state =
-    if
-        RandomRun.isInBounds
-            { startIndex = options.leftIndex
-            , size = options.rightIndex - options.leftIndex + 1
-            }
-            state.randomRun
-    then
-        {- First we try swapping them if left > right.
+    {- First we try swapping them if left > right.
 
-           Then we try to (binary-search) minimize the left while keeping the
-           sum constant (so what we subtract from left we add to right).
-        -}
-        case RandomRun.swapIfOutOfOrder options state.randomRun of
-            Nothing ->
-                state
+       Then we try to (binary-search) minimize the left while keeping the
+       sum constant (so what we subtract from left we add to right).
+    -}
+    case RandomRun.swapIfOutOfOrder options state.randomRun of
+        Nothing ->
+            state
 
-            Just { newRun, newLeftValue, newRightValue } ->
-                let
-                    { newState } =
-                        keepIfStillFails newRun state
-                in
-                binarySearchShrink
-                    { low = 0
-                    , high = newLeftValue
-                    , state = newState
-                    , updateRun =
-                        \value accRun ->
-                            RandomRun.replace
-                                [ ( options.leftIndex, value )
-                                , ( options.rightIndex, newRightValue + newLeftValue - value )
-                                ]
-                                accRun
-                    }
-
-    else
-        state
+        Just { newRun, newLeftValue, newRightValue } ->
+            let
+                { newState } =
+                    keepIfStillFails newRun state
+            in
+            binarySearchShrink
+                { low = 0
+                , high = newLeftValue
+                , state = newState
+                , updateRun =
+                    \value accRun ->
+                        RandomRun.replace
+                            [ ( options.leftIndex, value )
+                            , ( options.rightIndex, newRightValue + newLeftValue - value )
+                            ]
+                            accRun
+                }
 
 
 

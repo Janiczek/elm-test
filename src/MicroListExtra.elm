@@ -3,16 +3,24 @@ module MicroListExtra exposing (fastConcat, fastConcatMap, getAt, setAt)
 
 getAt : Int -> List a -> Maybe a
 getAt index list =
-    list
-        |> List.drop index
-        |> List.head
+    if index < 0 then
+        Nothing
+
+    else
+        list
+            |> List.drop index
+            |> List.head
 
 
-setAt : Int -> a -> List a -> List a
-setAt index value list =
-    List.take index list
-        ++ value
-        :: List.drop (index + 1) list
+setAt : Int -> a -> Int -> List a -> List a
+setAt index value length list =
+    if length <= index || index < 0 then
+        list
+
+    else
+        List.take index list
+            ++ value
+            :: List.drop (index + 1) list
 
 
 fastConcat : List (List a) -> List a

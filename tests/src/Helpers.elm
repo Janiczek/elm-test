@@ -45,7 +45,12 @@ testSimplifying runs test =
         handleFailure { given, description } =
             case given of
                 Nothing ->
-                    Err "Expected this test to have a given value!"
+                    [ "Expected this test to have a given value!"
+                    , "Description:"
+                    , "  " ++ description
+                    ]
+                        |> String.join "\n"
+                        |> Err
 
                 Just g ->
                     if g == description then

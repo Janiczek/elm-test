@@ -47,6 +47,7 @@ largeUnionList =
     simplifiesTowardsMany
         "large union list"
         [ [ [ 0, 1, 2, 3, 4 ] ]
+        , [ [ 1, 2, -2, 0, -1 ] ]
         , [ [ 2, -1, -2, 0, 1 ] ]
         ]
         (Fuzz.list (Fuzz.list Fuzz.int))
@@ -164,9 +165,11 @@ calculator =
                         (eval b)
                         |> Maybe.andThen identity
     in
-    simplifiesTowards
+    simplifiesTowardsMany
         "calculator"
-        (Div (Int 0) (Add (Int 0) (Int 0)))
+        [ Div (Int 0) (Add (Int 0) (Int 0))
+        , Div (Int 0) (Div (Int 0) (Int 1))
+        ]
         (exprFuzzer 5 |> Fuzz.filter noDivisionByLiteralZero)
         (\expr -> eval expr /= Nothing)
 

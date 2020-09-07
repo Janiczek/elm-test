@@ -495,12 +495,13 @@ your test.
 simplify : (a -> Expectation) -> ( a, Simplifiable a ) -> Maybe ( a, Simplifiable a )
 simplify getExpectation ( value, Simplifiable { randomRun, fuzzer } ) =
     let
-        ( newValue, newRandomRun ) =
+        ( newValue, newRandomRun, _ ) =
             Simplify.simplify
                 { getExpectation = getExpectation
                 , fuzzer = fuzzer
                 , randomRun = randomRun
                 , value = value
+                , expectation = getExpectation value
                 }
     in
     if RandomRun.equal newRandomRun randomRun then

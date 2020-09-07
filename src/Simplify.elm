@@ -16,44 +16,30 @@ type alias State a =
     , fuzzer : Fuzzer a
     , value : a
     , randomRun : RandomRun
+    , expectation : Expectation
     }
 
 
 {-| TODO ~janiczek: perhaps we can just return `a` here
 -}
-simplify : State a -> ( a, RandomRun )
+simplify : State a -> ( a, RandomRun, Expectation )
 simplify state =
     if RandomRun.isEmpty state.randomRun then
         -- We can't do any better
-        ( state.value, state.randomRun )
+        ( state.value, state.randomRun, state.expectation )
 
     else
         simplifyWhileProgress state
 
 
-simplifyWhileProgress : State a -> ( a, RandomRun )
+simplifyWhileProgress : State a -> ( a, RandomRun, Expectation )
 simplifyWhileProgress state =
-    let
-        _ =
-            Debug.log "[SIMPLIFY] ----------------------------" ()
-    in
-    let
-        _ =
-            Debug.log
-                "[SIMPLIFY] simplifyWhileProgress INPUT "
-                ( RandomRun.toList state.randomRun, state.value )
-    in
     let
         nextState =
             simplifyOnce state
-
-        _ =
-            Debug.log
-                "[SIMPLIFY] simplifyWhileProgress OUTPUT"
-                ( RandomRun.toList nextState.randomRun, nextState.value )
     in
     if RandomRun.equal nextState.randomRun state.randomRun then
-        ( nextState.value, nextState.randomRun )
+        ( nextState.value, nextState.randomRun, nextState.expectation )
 
     else
         simplifyWhileProgress nextState
@@ -62,9 +48,7 @@ simplifyWhileProgress state =
 simplifyOnce : State a -> State a
 simplifyOnce state =
     runCmds
-        (Simplify.Cmd.cmdsForRun state.randomRun
-         --|> Debug.log "[SIMPLIFY] cmds"
-        )
+        (Simplify.Cmd.cmdsForRun state.randomRun)
         state
 
 
@@ -141,13 +125,14 @@ keepIfStillFails newRandomRun state =
                     Pass ->
                         nope ()
 
-                    Fail _ ->
+                    Fail fail ->
                         if RandomRun.compare state.randomRun newRandomRun == GT then
                             { stillFails = True
                             , newState =
                                 { state
                                     | value = value
                                     , randomRun = newRandomRun
+                                    , expectation = Fail fail
                                 }
                             }
 

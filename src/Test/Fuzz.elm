@@ -104,6 +104,7 @@ runOneFuzzIteration fuzzer getExpectation ( _, currentSeed ) =
                         , fuzzer = fuzzer
                         , randomRun = PRNG.getRun prng
                         , value = value
+                        , expectation = getExpectation value
                         }
     in
     ( maybeFailure, nextSeed )
@@ -134,7 +135,7 @@ foldUntil remainingRuns endingCondition initialState f =
 -}
 testGeneratedValue : Simplify.State a -> Maybe Failure
 testGeneratedValue state =
-    case state.getExpectation state.value of
+    case state.expectation of
         Pass ->
             Nothing
 
@@ -147,11 +148,11 @@ testGeneratedValue state =
 findSimplestFailure : Simplify.State a -> Failure
 findSimplestFailure state =
     let
-        ( simplestValue, _ ) =
+        ( simplestValue, _, expectation ) =
             Simplify.simplify state
     in
     { given = Just <| Test.Internal.toString simplestValue
-    , expectation = state.getExpectation simplestValue
+    , expectation = expectation
     }
 
 

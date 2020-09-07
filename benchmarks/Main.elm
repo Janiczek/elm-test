@@ -1,86 +1,62 @@
 module Main exposing (main)
 
-import Benchmark exposing (..)
-import Benchmark.Runner exposing (BenchmarkProgram)
-import Expect
-import Fuzz
+import Expect exposing (Expectation)
+import Fuzz exposing (Fuzzer)
+import Html exposing (Html)
 import Random
 import Test
 import Test.Runner
 
 
+main : Html msg
 main =
-    Benchmark.Runner.program suite
+    List.range 0 20
+        |> List.reverse
+        |> List.map (genAndShrink fuzzer)
+        |> Debug.toString
+        |> Html.text
 
 
-suite : Benchmark
-suite =
-    Benchmark.describe "elm-test"
-        [ benchmark_ "bool"
-            Fuzz.bool
-        , benchmark_ "int 0 10"
-            (Fuzz.intRange 0 10)
-        , benchmark_ "weightedBool 0.75"
-            (Fuzz.percentage
-                |> Fuzz.map (\p -> p <= 0.75)
-            )
-        , benchmark_ "unit"
-            Fuzz.unit
-        , benchmark_ "triple ints"
-            (Fuzz.triple
-                ( Fuzz.intRange 0 10
-                , Fuzz.intRange 0 10
-                , Fuzz.intRange 0 10
-                )
-            )
-        , benchmark_ "list of ints"
-            (Fuzz.list (Fuzz.intRange 0 10))
-        ]
+fuzzer : Fuzzer ( Int, Int, Int )
+fuzzer =
+    Fuzz.triple
+        ( Fuzz.intRange 0 10
+        , Fuzz.intRange 0 10
+        , Fuzz.intRange 0 10
+        )
 
 
-benchmark_ :
-    String
-    -> Fuzz.Fuzzer a
-    -> Benchmark
-benchmark_ label fuzzer =
+genAndShrink : Fuzzer a -> Int -> List (List Expectation)
+genAndShrink fuzzer_ seed =
     let
-        genAndShrink seed () =
-            let
-                runners =
-                    Test.Runner.fromTest 100
-                        seed
-                        (Test.fuzz
-                            fuzzer
-                            "elm-test"
-                            (always (Expect.fail "shrink more!"))
-                        )
-            in
-            case runners of
-                Test.Runner.Plain xs ->
-                    List.map (\runner -> runner.run ()) xs
-
-                Test.Runner.Only xs ->
-                    List.map (\runner -> runner.run ()) xs
-
-                Test.Runner.Skipping xs ->
-                    List.map (\runner -> runner.run ()) xs
-
-                Test.Runner.Invalid str ->
-                    [ [] ]
-
-        gen seed () =
-            Test.Runner.fuzz fuzzer
-                |> Result.map (\gen_ -> Random.step gen_ seed)
+        _ =
+            Debug.log "running for seed" seed
     in
-    describe label
-        [ benchmark "(0) gen" (gen (Random.initialSeed 0))
-        , benchmark "(1) gen" (gen (Random.initialSeed 1))
-        , benchmark "(2) gen" (gen (Random.initialSeed 2))
-        , benchmark "(3) gen" (gen (Random.initialSeed 3))
-        , benchmark "(4) gen" (gen (Random.initialSeed 4))
-        , benchmark "(0) gen + shrink" (genAndShrink (Random.initialSeed 0))
-        , benchmark "(1) gen + shrink" (genAndShrink (Random.initialSeed 1))
-        , benchmark "(2) gen + shrink" (genAndShrink (Random.initialSeed 2))
-        , benchmark "(3) gen + shrink" (genAndShrink (Random.initialSeed 3))
-        , benchmark "(4) gen + shrink" (genAndShrink (Random.initialSeed 4))
-        ]
+    let
+        runners =
+            Test.Runner.fromTest 100
+                (Random.initialSeed seed)
+                (Test.fuzz
+                    fuzzer_
+                    "elm-test"
+                    (\x ->
+                        let
+                            _ =
+                                Debug.log "generated/shrunk value" x
+                        in
+                        Expect.fail "shrink more!"
+                    )
+                )
+    in
+    case runners of
+        Test.Runner.Plain xs ->
+            List.map (\runner -> runner.run ()) xs
+
+        Test.Runner.Only xs ->
+            List.map (\runner -> runner.run ()) xs
+
+        Test.Runner.Skipping xs ->
+            List.map (\runner -> runner.run ()) xs
+
+        Test.Runner.Invalid str ->
+            [ [] ]
